@@ -120,6 +120,117 @@ function M.user_message(text)
   append(lines, "SottoccUser")
 end
 
+---A `|---|:--:|` rule, which is what turns the line above it into a header.
+---@param l string
+---@return boolean
+local function is_rule(l)
+  return l:match("^[%s|:%-]+$") ~= nil and l:find("%-") ~= nil and l:find("|") ~= nil
+end
+
+---@param l string
+---@return string[]
+local function split_row(l)
+  local s = vim.trim(l):gsub("^|", ""):gsub("|%s*$", "")
+  local cells = {}
+  for c in (s .. "|"):gmatch("([^|]*)|") do
+    table.insert(cells, vim.trim(c))
+  end
+  return cells
+end
+
+---@param cells string[]
+---@return string[]
+local function aligns_of(cells)
+  local out = {}
+  for i, c in ipairs(cells) do
+    local left, right = c:sub(1, 1) == ":", c:sub(-1) == ":"
+    out[i] = (left and right) and "center" or (right and "right") or "left"
+  end
+  return out
+end
+
+---Pad to a display width, so CJK and emoji keep the columns straight.
+---@param s string
+---@param w integer
+---@param align string
+---@return string
+local function pad(s, w, align)
+  local space = math.max(0, w - vim.fn.strdisplaywidth(s))
+  if align == "right" then return (" "):rep(space) .. s end
+  if align == "center" then
+    local l = math.floor(space / 2)
+    return (" "):rep(l) .. s .. (" "):rep(space - l)
+  end
+  return s .. (" "):rep(space)
+end
+
+---@param head string[]
+---@param aligns string[]
+---@param body string[][]
+---@return string[]
+local function draw_table(head, aligns, body)
+  local ncol = #head
+  for _, r in ipairs(body) do ncol = math.max(ncol, #r) end
+
+  local w = {}
+  local function measure(r)
+    for i = 1, ncol do
+      local d = vim.fn.strdisplaywidth(r[i] or "")
+      if d > (w[i] or 0) then w[i] = d end
+    end
+  end
+  measure(head)
+  for _, r in ipairs(body) do measure(r) end
+
+  local function rule(left, mid, right)
+    local parts = {}
+    for i = 1, ncol do table.insert(parts, ("─"):rep(w[i] + 2)) end
+    return left .. table.concat(parts, mid) .. right
+  end
+  local function row(cells)
+    local parts = {}
+    for i = 1, ncol do
+      table.insert(parts, " " .. pad(cells[i] or "", w[i], aligns[i] or "left") .. " ")
+    end
+    return "│" .. table.concat(parts, "│") .. "│"
+  end
+
+  local out = { rule("┌", "┬", "┐"), row(head), rule("├", "┼", "┤") }
+  for _, r in ipairs(body) do table.insert(out, row(r)) end
+  table.insert(out, rule("└", "┴", "┘"))
+  return out
+end
+
+---Replace every markdown table with an aligned, box-drawn one.
+---Pipes alone do not line up once the cells hold text of different widths,
+---which is why the CLI draws borders too.
+---@param lines string[]
+---@return string[]
+local function expand_tables(lines)
+  local out, i, in_fence = {}, 1, false
+  while i <= #lines do
+    local l = lines[i]
+    if l:match("^%s*```") then in_fence = not in_fence end
+
+    local next_line = lines[i + 1]
+    if not in_fence and l:find("|") and next_line and is_rule(next_line) then
+      local head = split_row(l)
+      local aligns = aligns_of(split_row(next_line))
+      local body, j = {}, i + 2
+      while j <= #lines and lines[j]:find("|") and vim.trim(lines[j]) ~= "" do
+        table.insert(body, split_row(lines[j]))
+        j = j + 1
+      end
+      vim.list_extend(out, draw_table(head, aligns, body))
+      i = j
+    else
+      table.insert(out, l)
+      i = i + 1
+    end
+  end
+  return out
+end
+
 ---Agent prose, with fenced blocks and inline spans picked out.
 ---Markdown is highlighted by hand rather than by setting the buffer's
 ---filetype: the buffer also holds tool headers and raw output, which a
@@ -128,7 +239,7 @@ end
 function M.agent_text(text)
   local lines, spans, in_fence = { "" }, {}, false
 
-  for i, l in ipairs(vim.split(text, "\n", { plain = true })) do
+  for i, l in ipairs(expand_tables(vim.split(text, "\n", { plain = true }))) do
     local body = i == 1 and ("%s %s"):format(GLYPH.agent, l) or ("  " .. l)
     table.insert(lines, body)
     local row = #lines - 1 -- 0-indexed offset within this append

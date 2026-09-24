@@ -90,6 +90,7 @@ function M.open()
 
   pin(out_win)
   pin(prompt_win)
+  require("sottocc.fold").attach(out_win)
   M.size_prompt()
   require("sottocc.winbar").paint()
 

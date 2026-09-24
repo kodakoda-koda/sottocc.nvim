@@ -19,6 +19,19 @@ M.cwd = nil
 M.turn = 0
 -- tool_use_id -> tool name, so results know whether a refresh is due.
 M.tools = {}
+-- Context reading, kept in two halves: how much the last request carried, and
+-- how much the model can hold.
+M.ctx_used = nil
+M.ctx_window = nil
+-- Set while an interrupt is in flight, so the abort it causes reads as an
+-- interruption rather than as a failure.
+M.interrupted = false
+
+---Recompute the ctx percentage from whichever halves are known.
+local function update_ctx()
+  if not (M.ctx_used and M.ctx_window and M.ctx_window > 0) then return end
+  Winbar.state.ctx = math.min(100, M.ctx_used / M.ctx_window * 100)
+end
 
 local PERMISSION_MODES = {
   "default", "manual", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk",
@@ -72,6 +85,15 @@ local function handle(msg)
     end
 
   elseif t == "assistant" then
+    -- The context is what this one request carried, not what the session has
+    -- spent: result.modelUsage accumulates across turns and runs past 100%.
+    local u = (msg.message or {}).usage
+    if type(u) == "table" then
+      M.ctx_used = (u.input_tokens or 0) + (u.cache_read_input_tokens or 0)
+          + (u.cache_creation_input_tokens or 0) + (u.output_tokens or 0)
+      update_ctx()
+      Winbar.paint()
+    end
     for _, b in ipairs((msg.message or {}).content or {}) do
       if b.type == "text" and b.text ~= "" then
         Render.agent_text(b.text)
@@ -125,15 +147,21 @@ local function handle(msg)
 
   elseif t == "result" then
     Winbar.state.status = nil
+    -- modelUsage is only read for the window size; its token counts are
+    -- session totals, not the size of the current conversation.
     local usage = msg.modelUsage or {}
     local main = usage[Winbar.state.model or ""] or select(2, next(usage))
     if type(main) == "table" and main.contextWindow then
-      local used = (main.inputTokens or 0) + (main.outputTokens or 0)
-          + (main.cacheReadInputTokens or 0) + (main.cacheCreationInputTokens or 0)
-      Winbar.state.ctx = used / main.contextWindow * 100
+      M.ctx_window = main.contextWindow
     end
+    update_ctx()
     Winbar.paint()
-    if msg.is_error then
+
+    local aborted = msg.terminal_reason == "aborted_streaming" or M.interrupted
+    M.interrupted = false
+    if aborted then
+      Render.notice("⏹ interrupted")
+    elseif msg.is_error then
       Render.error("error: " .. tostring(msg.api_error_status or msg.subtype))
     end
   end
@@ -147,6 +175,9 @@ function M.start(resume)
   M.cwd = vim.fn.getcwd()
   M.tools = {}
   M.turn = 0
+  M.ctx_used, M.ctx_window = nil, nil
+  M.interrupted = false
+  Winbar.state.ctx = nil
   -- The CLI stays silent until the first prompt, so nothing would report the
   -- mode before then. Show what we asked for and let system/init correct it.
   Winbar.state.mode = Config.options.permission_mode or "default"
@@ -196,16 +227,19 @@ function M.submit()
   if Slash.dispatch(M, text) then return end
 
   if not (M.proc and M.proc.alive) then M.start() end
+  M.interrupted = false
   M.turn = M.turn + 1
   Render.user_message(text)
   M.proc:send_user(text)
 end
 
 function M.interrupt()
-  if M.proc and M.proc.alive then
-    M.proc:interrupt()
-    Render.notice("interrupt sent")
+  if not (M.proc and M.proc.alive) then
+    Render.notice("nothing to interrupt")
+    return
   end
+  M.interrupted = true
+  M.proc:interrupt()
 end
 
 function M.clear()
@@ -436,6 +470,7 @@ function M.setup(opts)
     complete = function() return PERMISSION_MODES end,
     desc = "Change the session permission mode",
   })
+  cmd("SottoccInterrupt", M.interrupt, { desc = "Stop the turn in progress" })
   cmd("SottoccStop", M.stop, {})
 end
 

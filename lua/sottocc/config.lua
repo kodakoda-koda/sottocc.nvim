@@ -8,8 +8,9 @@ M.defaults = {
   -- Width of the sottocc column as a fraction of the screen.
   width_ratio = 0.4,
   prompt_height = 10,
-  -- Tool results longer than this are truncated with an ellipsis line.
-  max_tool_result_lines = 30,
+  -- Tool results longer than this are truncated with an ellipsis line. The
+  -- result is folded shut anyway, so a generous cap costs no screen space.
+  max_tool_result_lines = 200,
   -- v1 drops thinking entirely rather than folding it.
   show_thinking = false,
   -- Reload changed buffers and refresh oil after file-editing tools.

@@ -52,7 +52,18 @@ Inside the prompt buffer:
 | `<S-Tab>` | Cycle the permission mode |
 | `go` / `gp` | Jump to the output / prompt buffer |
 
-Insert mode `<CR>` inserts a newline, as it should.
+Insert mode `<CR>` inserts a newline, as it should. `<C-c>` is bound in both
+buffers; from anywhere else, `:SottoccInterrupt` does the same. The turn ends
+and the session stays open for the next prompt.
+
+## Output
+
+Tool results are folded shut, as they are in the CLI: the `⎿` line stays, with
+a count of what is behind it. They are ordinary folds, so `za`, `zo`, `zR` and
+`zM` work, and `/` still finds text inside a closed one.
+
+Markdown tables are redrawn with aligned, box-drawn columns, measured by
+display width so CJK cells line up.
 
 ## Slash commands
 
@@ -98,7 +109,7 @@ opts = {
   extra_args = {},
   width_ratio = 0.4,
   prompt_height = 10,
-  max_tool_result_lines = 30,
+  max_tool_result_lines = 200,
   show_thinking = false,
   auto_refresh = true,          -- reload buffers and oil after an edit
   permission_mode = nil,        -- passed as --permission-mode when set
