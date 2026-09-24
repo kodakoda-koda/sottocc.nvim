@@ -86,8 +86,10 @@ end
 ---@param v string
 ---@return string
 local function one_line(v)
+  -- Only the first line, and no tabs: runs of spaces are left alone, since
+  -- the indent and the two spaces after ⎿ are what the fold rule reads.
   local first = vim.split(v, "\n", { plain = true })[1] or ""
-  first = first:gsub("%s+", " ")
+  first = first:gsub("\t", " "):gsub("%s+$", "")
   if #first > 120 then first = first:sub(1, 117) .. "…" end
   return first
 end
@@ -264,6 +266,19 @@ function M.agent_text(text)
   append(lines, nil, spans)
 end
 
+---What to put in the parentheses after a tool's name. A path is shown
+---relative to the working directory, as the CLI shows it.
+---@param input table
+---@return string?
+local function describe(input)
+  local path = input.file_path or input.path
+  if type(path) == "string" and path ~= "" then
+    return vim.fn.fnamemodify(path, ":.")
+  end
+  local v = input.command or input.pattern or input.query or input.description
+  return v and tostring(v) or nil
+end
+
 ---A tool call whose arguments are not known yet.
 ---@param id string
 ---@param name string
@@ -273,15 +288,21 @@ function M.tool_start(id, name)
 end
 
 ---Fill in the summary once the assistant message confirms the arguments.
+---
+---A subagent's own tool calls never appear as partial stream events, only as
+---finished assistant messages, so there may be no line to fill in yet.
 ---@param id string
 ---@param name string
 ---@param input table
 function M.tool_confirm(id, name, input)
-  local summary = input.file_path or input.command or input.pattern
-      or input.path or input.query or input.description
-  local text = summary and ("%s %s(%s)"):format(GLYPH.agent, name, one_line(tostring(summary)))
+  local summary = describe(input)
+  local text = summary and ("%s %s(%s)"):format(GLYPH.agent, name, one_line(summary))
       or ("%s %s"):format(GLYPH.agent, name)
-  replace_line("tool:" .. id, text)
+  if M.blocks["tool:" .. id] then
+    replace_line("tool:" .. id, text)
+  else
+    mark("tool:" .. id, append({ "", one_line(text) }) + 1)
+  end
 end
 
 ---@param id string
@@ -313,6 +334,116 @@ function M.tool_result(id, content, is_error)
     end
   end)
   Window.follow()
+end
+
+-- A subagent's steps are indented far enough to count as continuation lines
+-- of its ⎿ summary, so the whole delegation folds away behind one line, the
+-- way the CLI hides it behind "Done (…)".
+local NEST = "     "
+
+---Insert lines just after the block `key` owns, then move its anchor to the
+---last of them, so the next insertion lands below.
+---@param key string
+---@param lines string[]
+local function insert_after(key, lines)
+  if #lines == 0 then return end
+  local row = row_of(key)
+  if not row then return end
+  Window.with_output(function(buf)
+    vim.api.nvim_buf_set_lines(buf, row + 1, row + 1, false, lines)
+    for i = 0, #lines - 1 do
+      vim.api.nvim_buf_set_extmark(buf, NS, row + 1 + i, 0, { line_hl_group = "SottoccResult" })
+    end
+    M.blocks[key] = vim.api.nvim_buf_set_extmark(buf, NS, row + #lines, 0, {})
+  end)
+  Window.follow()
+end
+
+---Open a delegation: the ⎿ line that its steps will hang under.
+---@param id string
+function M.agent_open(id)
+  local row = row_of("tool:" .. id)
+  if not row then return end
+  Window.with_output(function(buf)
+    vim.api.nvim_buf_set_lines(buf, row + 1, row + 1, false, { GLYPH.result .. "running…" })
+    vim.api.nvim_buf_set_extmark(buf, NS, row + 1, 0, { line_hl_group = "SottoccResult" })
+    M.blocks["res:" .. id] = vim.api.nvim_buf_set_extmark(buf, NS, row + 1, 0, {})
+    M.blocks["end:" .. id] = vim.api.nvim_buf_set_extmark(buf, NS, row + 1, 0, {})
+  end)
+  Window.follow()
+end
+
+---@param parent string
+---@param name string
+---@param input table
+function M.nested_tool(parent, name, input)
+  local summary = describe(input)
+  local text = summary and ("%s %s(%s)"):format(GLYPH.agent, name, one_line(summary))
+      or ("%s %s"):format(GLYPH.agent, name)
+  insert_after("end:" .. parent, { NEST .. one_line(text) })
+end
+
+---@param parent string
+---@param text string
+function M.nested_text(parent, text)
+  local lines = {}
+  for _, l in ipairs(vim.split(text, "\n", { plain = true })) do
+    table.insert(lines, NEST .. l)
+  end
+  insert_after("end:" .. parent, lines)
+end
+
+---@param parent string
+---@param content string
+function M.nested_result(parent, content)
+  local max = Config.options.max_tool_result_lines
+  local raw = vim.split(content or "", "\n", { plain = true })
+  local lines = {}
+  for i = 1, math.min(#raw, max) do
+    table.insert(lines, NEST .. (i == 1 and "⎿  " or "   ") .. raw[i])
+  end
+  if #raw > max then
+    table.insert(lines, NEST .. ("   … +%d lines"):format(#raw - max))
+  end
+  if #lines == 0 then lines = { NEST .. "⎿  (no output)" } end
+  insert_after("end:" .. parent, lines)
+end
+
+---@param n integer
+---@return string
+local function fmt_tokens(n)
+  if n >= 1000 then return ("%.1fk tokens"):format(n / 1000) end
+  return ("%d tokens"):format(n)
+end
+
+---Close a delegation: the ⎿ line becomes the CLI's "Done (…)" summary, and
+---the hand-back report goes inside the fold rather than on screen.
+---@param id string
+---@param content string
+function M.agent_done(id, content)
+  content = content or ""
+  local uses = content:match("tool_uses:%s*(%d+)")
+  local tokens = content:match("subagent_tokens:%s*(%d+)")
+  local ms = content:match("duration_ms:%s*(%d+)")
+
+  local bits = {}
+  if uses then
+    table.insert(bits, ("%s tool use%s"):format(uses, uses == "1" and "" or "s"))
+  end
+  if tokens then table.insert(bits, fmt_tokens(tonumber(tokens))) end
+  if ms then table.insert(bits, ("%.1fs"):format(tonumber(ms) / 1000)) end
+  local head = #bits > 0 and ("Done (%s)"):format(table.concat(bits, " · ")) or "Done"
+
+  if M.blocks["res:" .. id] then
+    replace_line("res:" .. id, GLYPH.result .. head, "SottoccResult")
+  end
+
+  local body = content:gsub("<usage>.-</usage>%s*$", "")
+  local lines = {}
+  for _, l in ipairs(vim.split(vim.trim(body), "\n", { plain = true })) do
+    table.insert(lines, NEST .. "   " .. l)
+  end
+  insert_after("end:" .. id, lines)
 end
 
 ---@param text string

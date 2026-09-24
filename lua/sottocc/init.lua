@@ -33,6 +33,23 @@ local function update_ctx()
   Winbar.state.ctx = math.min(100, M.ctx_used / M.ctx_window * 100)
 end
 
+---The delegation tool, whose own steps arrive in this same stream tagged with
+---its id. It has been called Task and is now called Agent.
+---@param name string?
+---@return boolean
+local function is_agent(name)
+  return name == "Agent" or name == "Task"
+end
+
+---The id of the Agent call a message belongs to, or nil for the main thread.
+---A JSON null decodes to vim.NIL, which is truthy in Lua.
+---@param msg table
+---@return string?
+local function parent_of(msg)
+  local id = msg.parent_tool_use_id
+  return type(id) == "string" and id or nil
+end
+
 local PERMISSION_MODES = {
   "default", "manual", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk",
 }
@@ -94,16 +111,25 @@ local function handle(msg)
       update_ctx()
       Winbar.paint()
     end
+    -- A message from a delegated subagent carries the id of the Agent call
+    -- that spawned it. Its steps belong under that call, not beside it.
+    local parent = parent_of(msg)
     for _, b in ipairs((msg.message or {}).content or {}) do
       if b.type == "text" and b.text ~= "" then
-        Render.agent_text(b.text)
+        if parent then Render.nested_text(parent, b.text) else Render.agent_text(b.text) end
       elseif b.type == "tool_use" then
         M.tools[b.id] = b.name
-        Render.tool_confirm(b.id, b.name, b.input or {})
+        if parent then
+          Render.nested_tool(parent, b.name, b.input or {})
+        else
+          Render.tool_confirm(b.id, b.name, b.input or {})
+          if is_agent(b.name) then Render.agent_open(b.id) end
+        end
       end
     end
 
   elseif t == "user" then
+    local parent = parent_of(msg)
     for _, b in ipairs((msg.message or {}).content or {}) do
       if b.type == "tool_result" then
         local content = b.content
@@ -112,8 +138,15 @@ local function handle(msg)
           for _, c in ipairs(content) do table.insert(parts, c.text or "") end
           content = table.concat(parts, "\n")
         end
-        Render.tool_result(b.tool_use_id, content or "", b.is_error)
+        content = content or ""
         local name = M.tools[b.tool_use_id]
+        if parent then
+          Render.nested_result(parent, content)
+        elseif is_agent(name) then
+          Render.agent_done(b.tool_use_id, content)
+        else
+          Render.tool_result(b.tool_use_id, content, b.is_error)
+        end
         if Config.options.auto_refresh and name and Refresh.is_edit(name) then
           Refresh.run()
         end

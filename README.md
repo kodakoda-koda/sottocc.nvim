@@ -65,6 +65,16 @@ a count of what is behind it. They are ordinary folds, so `za`, `zo`, `zR` and
 Markdown tables are redrawn with aligned, box-drawn columns, measured by
 display width so CJK cells line up.
 
+A delegated subagent collapses to two lines, as it does in the CLI:
+
+```
+⏺ Agent(Run ls and wc)
+  ⎿  Done (1 tool use · 16.4k tokens · 8.0s)  (+27 lines)
+```
+
+Its own steps and its hand-back report are inside that fold, so `zo` still
+shows everything the subagent did.
+
 ## Slash commands
 
 Type them in the prompt. Everything the CLI advertises passes straight
