@@ -20,7 +20,7 @@ local FIXED_ARGS = {
   "--replay-user-messages",
 }
 
----@param opts { cwd: string, resume: string?, on_message: fun(msg: table), on_exit: fun(code: integer, deliberate: boolean) }
+---@param opts { cwd: string, resume: string?, session_id: string?, on_message: fun(msg: table), on_exit: fun(code: integer, deliberate: boolean) }
 ---@return table?
 function Process.start(opts)
   local o = Config.options
@@ -30,6 +30,8 @@ function Process.start(opts)
   end
   if opts.resume then
     vim.list_extend(args, { "--resume", opts.resume })
+  elseif opts.session_id then
+    vim.list_extend(args, { "--session-id", opts.session_id })
   end
 
   local self = setmetatable({

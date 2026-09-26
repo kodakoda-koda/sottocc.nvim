@@ -214,15 +214,17 @@ end
 
 --------------------------------------------------------------------- process
 
----@param resume string?
-function M.start(resume)
+---@param resume string? an existing session to continue
+---@param session_id string? an id for a new session, used when resume is nil
+function M.start(resume, session_id)
   if M.proc and M.proc.alive then return end
   M.cwd = vim.fn.getcwd()
   M.tools = {}
   -- The CLI names the session only once the first prompt is answered. Until
-  -- then, a resume already knows which session it is, and a fresh start has
-  -- none: keeping the previous id would aim a rewind at the wrong transcript.
-  M.session_id = resume
+  -- then, a resume or a chosen id already says which session it is, and a
+  -- fresh start has none: keeping the previous id would aim a rewind at the
+  -- wrong transcript.
+  M.session_id = resume or session_id
   M.prompt_uuid = nil
   if not pruned then
     pruned = true
@@ -239,6 +241,7 @@ function M.start(resume)
   M.proc = Process.start({
     cwd = M.cwd,
     resume = resume,
+    session_id = session_id,
     -- One malformed field must not take the stream down with it: report the
     -- failure and keep reading.
     on_message = function(msg)
@@ -306,14 +309,18 @@ end
 
 ---Restart the process against an existing transcript and paint that
 ---transcript back into the buffer, since the CLI replays nothing itself.
+---
+---With `empty`, the session has no transcript yet -- a rewind to before the
+---first prompt -- so the id is handed to --session-id rather than --resume.
 ---@param id string
 ---@param label string?
-local function resume_into(id, label)
+---@param empty boolean?
+local function resume_into(id, label, empty)
   M.stop()
   Render.reset()
-  M.start(id)
+  if empty then M.start(nil, id) else M.start(id) end
   Render.notice(("resumed %s"):format(label or id:sub(1, 8)))
-  for _, e in ipairs(Session.replay(id, vim.fn.getcwd())) do
+  for _, e in ipairs(empty and {} or Session.replay(id, vim.fn.getcwd())) do
     if e.kind == "user" then
       Render.user_message(e.text)
     elseif e.kind == "agent" then
@@ -390,12 +397,12 @@ function M.rewind(_, args)
       end
     end
 
-    local new_id = Session.fork(id, cwd, entry.record)
+    local new_id, conversation = Session.fork(id, cwd, entry.record)
     if not new_id then
       Render.error("could not fork the transcript")
       return
     end
-    resume_into(new_id, ("rewound to: %s"):format(entry.text))
+    resume_into(new_id, ("rewound to: %s"):format(entry.text), not conversation)
   end
 
   local function choose(entry)

@@ -233,28 +233,38 @@ end
 ---This is what the CLI's own rewind does when it says "the conversation will
 ---be forked": the original is left untouched, and `--resume` picks up the
 ---copy. The CLI refuses /rewind in headless mode, so we build the fork here.
+---
+---Cutting before the first prompt leaves no conversation, only the CLI's
+---bookkeeping records. --resume fails on such a file and --session-id refuses
+---an id whose file exists, so nothing is written: the caller starts the new
+---id with --session-id instead, and the CLI creates the file itself.
 ---@param id string
 ---@param cwd string
 ---@param record integer 1-based transcript line to cut before
----@return string? new_id
+---@return string? new_id, boolean conversation whether a transcript was written
 function M.fork(id, cwd, record)
   local src = M.transcript(id, cwd)
   local fd = io.open(src, "r")
-  if not fd then return nil end
+  if not fd then return nil, false end
 
-  local kept = {}
+  local kept, talk = {}, false
   local idx = 0
   for line in fd:lines() do
     idx = idx + 1
     if idx >= record then break end
     table.insert(kept, line)
+    local ok, rec = pcall(vim.json.decode, line)
+    if ok and type(rec) == "table" and (rec.type == "user" or rec.type == "assistant") then
+      talk = true
+    end
   end
   fd:close()
-  if #kept == 0 then return nil end
 
   local new_id = Claude.uuid()
+  if not talk then return new_id, false end
+
   local out = io.open(M.transcript(new_id, cwd), "w")
-  if not out then return nil end
+  if not out then return nil, false end
   for _, line in ipairs(kept) do
     local ok, rec = pcall(vim.json.decode, line)
     if ok and type(rec) == "table" then
@@ -265,7 +275,7 @@ function M.fork(id, cwd, record)
     end
   end
   out:close()
-  return new_id
+  return new_id, true
 end
 
 return M
