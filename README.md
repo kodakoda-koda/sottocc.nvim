@@ -93,10 +93,15 @@ than a round-trip in the transcript.
 
 ## Permissions
 
-A permission request takes over the window to the left of the column, never
-the column itself. Edits show as a `before | after` diff; everything else
-shows its input. Answer with `y` or `n`, and the left window goes back to
-whatever it was holding.
+A permission request floats over everything left of the column, never the
+column itself. Splits already open there are not closed or resized; the prompt
+sits on top, and closing it leaves the layout exactly as it was.
+
+Edits show as a `before | after` diff across that whole region, half each.
+Everything else shows its input in one pane. Answer with `y` or `n`.
+
+Several tools in one turn queue up and are asked one at a time, with the
+number still waiting shown beside the tool name.
 
 There is deliberately no "always allow": the suggestion the CLI sends with a
 request switches the whole session to `acceptEdits`, which is a decision worth

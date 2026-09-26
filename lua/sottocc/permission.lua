@@ -1,10 +1,14 @@
--- Permission prompts take over the LEFT region, never the sottocc column.
--- Edit-like tools get a before | after diff; everything else gets its input
--- in a single buffer. Answering restores whatever was there (oil, a file).
+-- Permission prompts cover the region LEFT of the sottocc column, and nothing
+-- else. They are floating windows, so whatever splits the user has there are
+-- neither closed nor resized: the prompt sits on top and the layout underneath
+-- comes back untouched.
+--
+-- Edit-like tools get a before | after diff across that whole region, which is
+-- the point of covering it: half the screen each, rather than a sliver beside
+-- the splits that were already open.
 --
 -- One turn can call several tools, so requests arrive faster than they are
--- answered. They queue and are shown one at a time, as the CLI asks them, and
--- the left region is put back only after the last one has been answered.
+-- answered. They queue and are shown one at a time, as the CLI asks them.
 
 local Window = require("sottocc.window")
 
@@ -26,37 +30,27 @@ local showing = false
 ---@type { req: sottocc.Request, answered: boolean }?
 local current = nil
 
--- What the left region held before the first prompt took it over. Saved once,
--- not per request: a later request must never record the prompt it is about
--- to replace as the thing to restore.
---
--- The name is kept beside the handle because a buffer can be gone by the time
--- the answer comes: oil deletes its hidden buffers two seconds after the last
--- one leaves the screen, which a short queue of prompts easily outlasts.
----@type { win: integer, buf: integer, name: string, view: table, focus: integer }?
-local saved = nil
-
--- Windows a prompt opened beside the host, closed before the next is drawn.
+-- The floats currently up, and the window that had the cursor before the
+-- first of them took it.
 ---@type integer[]
-local extra = {}
+local floats = {}
+---@type integer?
+local focus = nil
 
----Find a window in this tab that is not part of the sottocc column.
----@return integer? win
-local function left_win()
-  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-    local buf = vim.api.nvim_win_get_buf(win)
-    if buf ~= Window.output_buf and buf ~= Window.prompt_buf then
-      return win
-    end
-  end
-  return nil
-end
+---The rectangle left of the sottocc column, in editor coordinates.
+---@return { row: integer, col: integer, width: integer, height: integer }?
+local function left_region()
+  local out = Window.win_for(Window.output_buf)
+  if not out then return nil end
+  -- One column of the gap is the vertical separator.
+  local width = vim.api.nvim_win_get_position(out)[2] - 1
+  if width < 20 then return nil end
 
----The window prompts are drawn in: the one already borrowed, or a fresh one.
----@return integer? win
-local function host_win()
-  if saved and vim.api.nvim_win_is_valid(saved.win) then return saved.win end
-  return left_win()
+  local tabs = #vim.api.nvim_list_tabpages()
+  local top = (vim.o.showtabline == 2 or (vim.o.showtabline == 1 and tabs > 1)) and 1 or 0
+  local height = vim.o.lines - vim.o.cmdheight - 1 - top
+  if height < 5 then return nil end
+  return { row = top, col = 0, width = width, height = height }
 end
 
 ---@param lines string[]
@@ -71,46 +65,47 @@ local function scratch(lines, ft)
   return buf
 end
 
-local function close_extra()
-  for _, win in ipairs(extra) do
-    if vim.api.nvim_win_is_valid(win) then pcall(vim.api.nvim_win_close, win, true) end
-  end
-  extra = {}
+---@param buf integer
+---@param rect table
+---@param hint string
+---@return integer win
+local function open_float(buf, rect, hint)
+  local win = vim.api.nvim_open_win(buf, false, {
+    relative = "editor",
+    row = rect.row,
+    col = rect.col,
+    width = rect.width,
+    height = rect.height,
+    style = "minimal",
+    zindex = 60,
+  })
+  -- The hint goes in the winbar rather than in the buffer: two extra lines of
+  -- text would offset one side of a diff against the other.
+  vim.wo[win].winbar = hint:gsub("%%", "%%%%")
+  vim.wo[win].winhighlight = "Normal:Normal,WinBar:SottoccUser,WinBarNC:SottoccUser"
+  table.insert(floats, win)
+  return win
 end
 
----Hand the left region back to whatever held it before the first prompt.
+local function close_floats()
+  for _, win in ipairs(floats) do
+    if vim.api.nvim_win_is_valid(win) then pcall(vim.api.nvim_win_close, win, true) end
+  end
+  floats = {}
+end
+
+---Take the prompt down and put the cursor back where it was.
 local function restore()
-  close_extra()
-  if not saved then return end
-  if vim.api.nvim_win_is_valid(saved.win) then
-    vim.wo[saved.win].winfixbuf = false
-    local back = vim.api.nvim_buf_is_valid(saved.buf)
-    if back then
-      vim.api.nvim_win_set_buf(saved.win, saved.buf)
-    elseif saved.name ~= "" then
-      -- Gone while the prompts were up. The name still opens it, and for an
-      -- oil listing that means the directory comes back, not a blank window.
-      back = vim.api.nvim_win_call(saved.win, function()
-        return pcall(vim.cmd.edit, vim.fn.fnameescape(saved.name))
-      end)
-    end
-    if back then
-      vim.api.nvim_win_call(saved.win, function()
-        vim.cmd("diffoff")
-        vim.fn.winrestview(saved.view)
-      end)
-    end
+  close_floats()
+  if focus and vim.api.nvim_win_is_valid(focus) then
+    pcall(vim.api.nvim_set_current_win, focus)
   end
-  -- Answering a prompt should not move the user; put them back where they were.
-  if saved.focus and vim.api.nvim_win_is_valid(saved.focus) then
-    pcall(vim.api.nvim_set_current_win, saved.focus)
-  end
-  saved = nil
+  focus = nil
 end
 
 local show
 
----Answer the request on screen, then draw the next one or give the region back.
+---Draw the next request, or give the screen back when there are none left.
 local function advance()
   current = nil
   local req = table.remove(queue, 1)
@@ -133,10 +128,10 @@ end
 ---@param slot { req: sottocc.Request, answered: boolean }
 function show(slot)
   local req = slot.req
-  local host = host_win()
-  if not host then
-    -- No left region to borrow: fall back to a plain confirm rather than
-    -- silently doing nothing.
+  local rect = left_region()
+  if not rect then
+    -- Nowhere to draw: fall back to a plain confirm rather than silently
+    -- doing nothing.
     local choice = vim.fn.confirm(("Allow %s?"):format(req.tool_name), "&Yes\n&No", 2)
     slot.answered = true
     req.respond(choice == 1 and "allow" or "deny")
@@ -144,20 +139,11 @@ function show(slot)
     return
   end
 
-  if not saved then
-    local buf = vim.api.nvim_win_get_buf(host)
-    saved = {
-      win = host,
-      buf = buf,
-      name = vim.api.nvim_buf_get_name(buf),
-      view = vim.api.nvim_win_call(host, vim.fn.winsaveview),
-      focus = vim.api.nvim_get_current_win(),
-    }
-  end
-  -- The previous prompt's diff pane, if it is still up.
-  close_extra()
+  if not focus then focus = vim.api.nvim_get_current_win() end
+  -- The previous request's floats, if it was answered a moment ago.
+  close_floats()
 
-  -- One flag for the whole prompt, so the two buffers of a diff cannot both
+  -- One flag for the whole prompt, so the two panes of a diff cannot both
   -- answer the same request.
   local function answer(behavior)
     if slot.answered then return end
@@ -167,15 +153,13 @@ function show(slot)
     vim.schedule(advance)
   end
 
-  ---@param win integer
   ---@param buf integer
-  local function bind_keys(win, buf)
+  local function bind_keys(buf)
     local opts = { buffer = buf, nowait = true }
     vim.keymap.set("n", "y", function() answer("allow") end, opts)
     vim.keymap.set("n", "n", function() answer("deny") end, opts)
     vim.keymap.set("n", "q", function() answer("deny") end, opts)
     vim.keymap.set("n", "<Esc>", function() answer("deny") end, opts)
-    vim.api.nvim_set_current_win(win)
   end
 
   local waiting = #queue > 0 and ("   (+%d waiting)"):format(#queue) or ""
@@ -198,27 +182,30 @@ function show(slot)
 
     local ft = vim.filetype.match({ filename = input.file_path }) or ""
     local before_buf = scratch(before, ft)
-    local after_buf = scratch(vim.list_extend({ hint, "" }, after), ft)
+    local after_buf = scratch(after, ft)
 
-    vim.api.nvim_win_set_buf(host, before_buf)
-    vim.api.nvim_win_call(host, function() vim.cmd("diffthis") end)
+    local half = math.floor((rect.width - 1) / 2)
+    local path = vim.fn.fnamemodify(input.file_path, ":.")
+    local left = open_float(before_buf,
+      { row = rect.row, col = rect.col, width = half, height = rect.height },
+      ("  %s  (before)"):format(path))
+    local right = open_float(after_buf,
+      { row = rect.row, col = rect.col + half + 1, width = rect.width - half - 1, height = rect.height },
+      hint)
 
-    vim.api.nvim_set_current_win(host)
-    vim.cmd("rightbelow vsplit")
-    local right = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(right, after_buf)
-    vim.api.nvim_win_call(right, function() vim.cmd("diffthis") end)
-    table.insert(extra, right)
-
-    bind_keys(right, after_buf)
-    bind_keys(right, before_buf)
+    for _, win in ipairs({ left, right }) do
+      vim.api.nvim_win_call(win, function() vim.cmd("diffthis") end)
+    end
+    bind_keys(before_buf)
+    bind_keys(after_buf)
+    vim.api.nvim_set_current_win(right)
   else
     local body = input.command or vim.inspect(input)
     local ft = input.command and "bash" or "lua"
-    local buf = scratch(vim.list_extend({ hint, "" }, vim.split(body, "\n", { plain = true })), ft)
-    vim.api.nvim_win_call(host, function() vim.cmd("diffoff") end)
-    vim.api.nvim_win_set_buf(host, buf)
-    bind_keys(host, buf)
+    local buf = scratch(vim.split(body, "\n", { plain = true }), ft)
+    local win = open_float(buf, rect, hint)
+    bind_keys(buf)
+    vim.api.nvim_set_current_win(win)
   end
 end
 
@@ -232,8 +219,8 @@ function M.ask(tool_name, input, respond)
   if not showing then advance() end
 end
 
----Drop every pending request, answering each with a denial, and give the left
----region back. Called when a turn is abandoned.
+---Drop every pending request, answering each with a denial, and take the
+---prompt down. Called when a turn is abandoned.
 function M.reset()
   local pending, live = queue, current
   queue, current, showing = {}, nil, false
