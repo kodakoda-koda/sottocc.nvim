@@ -2,11 +2,11 @@
 --
 -- The CLI refuses /resume in headless mode ("isn't available in this
 -- environment") and offers no listing API, so we read the transcripts:
---   ~/.claude/projects/<cwd with / and . replaced by ->/<session-id>.jsonl
+--   <config dir>/projects/<cwd with / and . replaced by ->/<session-id>.jsonl
+
+local Claude = require("sottocc.claude")
 
 local M = {}
-
-local PROJECTS = vim.fn.expand("~/.claude/projects")
 
 ---The transcript folder for a working directory.
 ---
@@ -22,6 +22,13 @@ function M.encode_cwd(cwd)
     table.insert(out, ch:match("^[A-Za-z0-9]$") and ch or "-")
   end
   return table.concat(out)
+end
+
+---The folder a working directory's transcripts are filed in.
+---@param cwd string
+---@return string
+function M.dir(cwd)
+  return Claude.projects_dir() .. "/" .. M.encode_cwd(cwd)
 end
 
 ---Pull a display title out of one transcript.
@@ -63,7 +70,7 @@ end
 ---@param cwd string
 ---@return { id: string, title: string, mtime: integer }[]
 function M.list(cwd)
-  local dir = PROJECTS .. "/" .. M.encode_cwd(cwd)
+  local dir = M.dir(cwd)
   if vim.fn.isdirectory(dir) == 0 then return {} end
 
   local out = {}
@@ -84,6 +91,14 @@ function M.list(cwd)
   return out
 end
 
+---The path of one session's transcript.
+---@param id string
+---@param cwd string
+---@return string
+function M.transcript(id, cwd)
+  return ("%s/%s.jsonl"):format(M.dir(cwd), id)
+end
+
 ---@param entry { title: string, mtime: integer }
 ---@return string
 function M.format(entry)
@@ -98,8 +113,7 @@ end
 ---@param cwd string
 ---@return { kind: string, text: string?, name: string?, input: table?, id: string? }[]
 function M.replay(id, cwd)
-  local path = ("%s/%s/%s.jsonl"):format(PROJECTS, M.encode_cwd(cwd), id)
-  local fd = io.open(path, "r")
+  local fd = io.open(M.transcript(id, cwd), "r")
   if not fd then return {} end
 
   local events = {}
@@ -141,12 +155,6 @@ function M.replay(id, cwd)
   return events
 end
 
----@param id string
----@param cwd string
----@return string
-local function transcript(id, cwd)
-  return ("%s/%s/%s.jsonl"):format(PROJECTS, M.encode_cwd(cwd), id)
-end
 
 ---Pull out one line of the text a user record carries.
 ---@param rec table
@@ -170,7 +178,7 @@ end
 ---@param cwd string
 ---@return { record: integer, turn: integer, text: string }[]
 function M.user_turns(id, cwd)
-  local fd = io.open(transcript(id, cwd), "r")
+  local fd = io.open(M.transcript(id, cwd), "r")
   if not fd then return {} end
 
   local out, idx, turn, last = {}, 0, 0, nil
@@ -206,7 +214,7 @@ end
 ---@param record integer 1-based transcript line to cut before
 ---@return string? new_id
 function M.fork(id, cwd, record)
-  local src = transcript(id, cwd)
+  local src = M.transcript(id, cwd)
   local fd = io.open(src, "r")
   if not fd then return nil end
 
@@ -220,10 +228,8 @@ function M.fork(id, cwd, record)
   fd:close()
   if #kept == 0 then return nil end
 
-  local new_id = vim.fn.system("uuidgen"):gsub("%s+", ""):lower()
-  if new_id == "" then return nil end
-
-  local out = io.open(transcript(new_id, cwd), "w")
+  local new_id = Claude.uuid()
+  local out = io.open(M.transcript(new_id, cwd), "w")
   if not out then return nil end
   for _, line in ipairs(kept) do
     local ok, rec = pcall(vim.json.decode, line)

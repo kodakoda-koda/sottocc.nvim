@@ -322,7 +322,7 @@ function M.resume(_, args)
     -- Name the directory: a session started from a different one lives in a
     -- different transcript folder, which is the usual reason for an empty list.
     Render.notice(("no resumable sessions under %s"):format(cwd))
-    Render.notice(("  looked in ~/.claude/projects/%s"):format(Session.encode_cwd(cwd)))
+    Render.notice(("  looked in %s"):format(vim.fn.fnamemodify(Session.dir(cwd), ":~")))
     return
   end
   local items = vim.tbl_map(Session.format, entries)
