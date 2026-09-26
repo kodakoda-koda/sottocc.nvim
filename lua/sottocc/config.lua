@@ -17,6 +17,9 @@ M.defaults = {
   -- loaded are touched. false refreshes none, but changed buffers are still
   -- reloaded and User SottoccFilesChanged still fires.
   refresh = { "oil", "neo-tree", "nvim-tree", "mini.files" },
+  -- "auto" uses vim.ui.select when a plugin has replaced it, and sottocc's
+  -- own float otherwise. "vim.ui" and "builtin" force one or the other.
+  picker = "auto",
   -- Passed as --permission-mode when set, so the starting mode is known
   -- before the first turn. "default" is not a value the flag accepts; leave
   -- this nil to take the CLI's own default.

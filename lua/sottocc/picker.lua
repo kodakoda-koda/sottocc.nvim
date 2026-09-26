@@ -1,14 +1,37 @@
--- Minimal floating picker: j/k to move, <CR> to choose, q/<Esc> to cancel.
--- Deliberately not vim.ui.select — inputlist() drops keystrokes when another
--- prompt follows it.
+-- Pickers for /resume, /rewind, /model and /mcp.
+--
+-- A vim.ui.select that telescope, fzf-lua, snacks or the like has taken over
+-- is used as it is. The stock one is not: it is inputlist(), which drops
+-- keystrokes when another prompt follows it, as /rewind's second step does.
+-- In its place goes a minimal float: j/k to move, <CR> to choose, q/<Esc> to
+-- cancel.
+
+local Config = require("sottocc.config")
 
 local M = {}
+
+---Whether vim.ui.select is still the one Neovim ships.
+---@return boolean
+local function stock_select()
+  local info = debug.getinfo(vim.ui.select, "S")
+  return info ~= nil and info.source:match("vim/ui%.lua$") ~= nil
+end
 
 ---@param opts { title: string, items: string[], on_choice: fun(index: integer)? }
 function M.open(opts)
   local items = opts.items
   if #items == 0 then
     vim.notify("sottocc: nothing to pick", vim.log.levels.INFO)
+    return
+  end
+
+  local mode = Config.options.picker
+  if mode == "vim.ui" or (mode == "auto" and not stock_select()) then
+    vim.ui.select(items, { prompt = opts.title }, function(_, idx)
+      -- Off the picker's own callback, so a follow-up picker is not opened
+      -- while this one is still closing.
+      if idx and opts.on_choice then vim.schedule(function() opts.on_choice(idx) end) end
+    end)
     return
   end
 
