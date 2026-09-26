@@ -8,16 +8,27 @@ local M = {}
 
 local PROJECTS = vim.fn.expand("~/.claude/projects")
 
+---The transcript folder for a working directory.
+---
+---The CLI replaces every character outside [A-Za-z0-9] with a dash, not just
+---the separators: a path under /nfs_home lands in -nfs-home. It walks the
+---path character by character, so one multi-byte character becomes one dash
+---rather than one per byte.
 ---@param cwd string
 ---@return string
 function M.encode_cwd(cwd)
-  return (cwd:gsub("[/.]", "-"))
+  local out = {}
+  for _, ch in ipairs(vim.fn.split(cwd, "\\zs")) do
+    table.insert(out, ch:match("^[A-Za-z0-9]$") and ch or "-")
+  end
+  return table.concat(out)
 end
 
--- Short transcripts are probe runs and one-off invocations, not conversations.
-local MIN_RECORDS = 10
-
 ---Pull a display title out of one transcript.
+---
+---A transcript is worth listing when someone actually said something in it.
+---Counting records instead would hide a short conversation, which is exactly
+---the one a person is most likely to have just left.
 ---@param path string
 ---@return string? title, integer records
 local function scan(path)
@@ -60,7 +71,7 @@ function M.list(cwd)
     if kind == "file" and name:match("%.jsonl$") then
       local path = dir .. "/" .. name
       local title, records = scan(path)
-      if title and records >= MIN_RECORDS then
+      if title then
         table.insert(out, {
           id = name:gsub("%.jsonl$", ""),
           title = title,
