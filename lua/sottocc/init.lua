@@ -384,25 +384,33 @@ function M.rewind(_, args)
   end
 
   local function do_rewind(entry, with_code)
+    local restored
     if with_code then
-      local restored = Snapshot.restore_from(Session.uuids_from(id, cwd, entry.record))
+      restored = Snapshot.restore_from(Session.uuids_from(id, cwd, entry.record))
+      if #restored > 0 then Refresh.run() end
+    end
+
+    -- Reported after the resume, which clears the buffer on its way in.
+    local function report()
+      if not restored then return end
       if #restored == 0 then
         Render.notice("no snapshots for this range; code left as it is")
-      else
-        Render.notice(("restored %d file(s)"):format(#restored))
-        for _, path in ipairs(restored) do
-          Render.notice("  " .. vim.fn.fnamemodify(path, ":."))
-        end
-        Refresh.run()
+        return
+      end
+      Render.notice(("restored %d file(s)"):format(#restored))
+      for _, path in ipairs(restored) do
+        Render.notice("  " .. vim.fn.fnamemodify(path, ":."))
       end
     end
 
     local new_id, conversation = Session.fork(id, cwd, entry.record)
     if not new_id then
+      report()
       Render.error("could not fork the transcript")
       return
     end
     resume_into(new_id, ("rewound to: %s"):format(entry.text), not conversation)
+    report()
   end
 
   local function choose(entry)
