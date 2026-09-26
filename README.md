@@ -91,6 +91,27 @@ Two are handled here instead, because the CLI refuses them in headless mode:
 `/clear`, `/model` and `/mcp` are also intercepted, to get a picker rather
 than a round-trip in the transcript.
 
+## Status line
+
+The row above the permission mode is your own `statusLine` command from
+Claude Code's `settings.json`, run the way the CLI runs it: the session as
+JSON on stdin, its output drawn with its ANSI colours. It reruns after each
+assistant message, result and rate-limit update, and every `refreshInterval`
+seconds.
+
+The JSON is rebuilt from the stream, so fields the stream does not carry are
+missing or zero: `cost.total_lines_*`, `pr`, `prompt_cache`, `session_name`.
+
+Without a `statusLine` setting, or with `statusline = "builtin"`, sottocc
+draws its own context and rate-limit bars. A function gets the same JSON and
+returns chunks:
+
+```lua
+statusline = function(data)
+  return { { data.model.display_name, "Title" } }
+end
+```
+
 ## Permissions
 
 A permission request floats over everything left of the column, never the
@@ -129,6 +150,7 @@ opts = {
   show_thinking = false,
   refresh = { "oil", "neo-tree", "nvim-tree", "mini.files" },  -- explorers to refresh after a change
   picker = "auto",              -- "auto", "vim.ui" or "builtin"
+  statusline = "claude",        -- "claude", "builtin" or function(data) return chunks end
   slash = {},                   -- { name = function(core, args) end } adds, { clear = false } passes through
   permission_mode = nil,        -- passed as --permission-mode when set
   permission_modes = { "manual", "acceptEdits", "plan", "auto" },

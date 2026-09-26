@@ -10,6 +10,7 @@ local Refresh = require("sottocc.refresh")
 local Snapshot = require("sottocc.snapshot")
 local Slash = require("sottocc.slash")
 local Winbar = require("sottocc.winbar")
+local Statusline = require("sottocc.statusline")
 
 local M = {}
 
@@ -70,6 +71,7 @@ local MODELS = {
 ---@param msg table
 local function handle(msg)
   local t = msg.type
+  Statusline.observe(msg)
 
   if t == "system" and msg.subtype == "init" then
     Slash.available = msg.slash_commands or {}
@@ -243,6 +245,7 @@ function M.start(resume, session_id)
   -- mode before then. Show what we asked for and let system/init correct it.
   Winbar.state.mode = Config.options.permission_mode or "default"
   Winbar.paint()
+  Statusline.start(M.cwd)
   M.proc = Process.start({
     cwd = M.cwd,
     resume = resume,
@@ -257,6 +260,7 @@ function M.start(resume, session_id)
       end
     end,
     on_exit = function(code, deliberate)
+      Statusline.stop()
       -- 143 is our own SIGTERM from :SottoccStop, /clear and /resume.
       if deliberate or code == 0 then return end
       Render.error(("process exited with code %d"):format(code))
@@ -265,6 +269,7 @@ function M.start(resume, session_id)
 end
 
 function M.stop()
+  Statusline.stop()
   if M.proc then M.proc:stop() end
   M.proc = nil
 end
@@ -477,6 +482,7 @@ function M.permission_mode(mode)
   -- next system/init, which overwrites this.
   Winbar.state.mode = mode
   Winbar.paint()
+  Statusline.trigger()
 end
 
 ---Walk the configured ring, exactly as Shift+Tab does in the CLI.

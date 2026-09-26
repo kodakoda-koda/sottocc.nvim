@@ -21,17 +21,39 @@ function M.projects_dir()
   return M.config_dir() .. "/projects"
 end
 
----The user-level settings.json, or an empty table when it is missing or
----does not parse.
+---A settings file, or an empty table when it is missing or does not parse.
+---@param path string
 ---@return table
-function M.settings()
-  local path = M.config_dir() .. "/settings.json"
+local function read_settings(path)
   local fd = io.open(path, "r")
   if not fd then return {} end
   local text = fd:read("*a")
   fd:close()
   local ok, decoded = pcall(vim.json.decode, text)
   return (ok and type(decoded) == "table") and decoded or {}
+end
+
+---The user-level settings.json, or an empty table when it is missing or
+---does not parse.
+---@return table
+function M.settings()
+  return read_settings(M.config_dir() .. "/settings.json")
+end
+
+---One top-level key as the CLI resolves it: the project's local settings
+---win over the project's shared ones, which win over the user's.
+---@param key string
+---@param cwd string
+---@return any
+function M.setting(key, cwd)
+  for _, path in ipairs({
+    cwd .. "/.claude/settings.local.json",
+    cwd .. "/.claude/settings.json",
+    M.config_dir() .. "/settings.json",
+  }) do
+    local v = read_settings(path)[key]
+    if v ~= nil then return v end
+  end
 end
 
 ---A random version 4 UUID, in the lower-case form the CLI uses for ids.

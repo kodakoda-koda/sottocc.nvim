@@ -130,6 +130,38 @@ function M.mode_chunks()
   return { { (" %s %s"):format(label[1], label[2]), hl } }
 end
 
+---The usage rows for the configured `statusline`: the output of the user's
+---statusLine command, a function's chunks, or the built-in bars.
+---@return { [1]: string, [2]: string }[][]
+local function usage_rows()
+  local Config = require("sottocc.config")
+  local Statusline = require("sottocc.statusline")
+  local mode = Config.options.statusline
+  if type(mode) == "function" then
+    local ok, r = pcall(mode, Statusline.data())
+    if ok and type(r) == "table" then
+      -- One row of chunks, or a list of rows.
+      if type(r[1]) == "table" and type(r[1][1]) == "table" then return r end
+      return { r }
+    end
+    return { { { ok and "statusline: not a table" or ("statusline: " .. tostring(r)), "ErrorMsg" } } }
+  end
+  if mode == "claude" then
+    local rows = Statusline.rows()
+    if rows then
+      -- The command cannot see system/status, so it is appended here.
+      local s = M.state.status
+      if type(s) == "string" and s ~= "" then
+        rows = vim.deepcopy(rows)
+        if #rows == 0 then rows[1] = {} end
+        table.insert(rows[#rows], { " " .. s, DIM })
+      end
+      return rows
+    end
+  end
+  return { M.bar_chunks() }
+end
+
 ---Repaint the two virtual rows, held against the bottom of the prompt window.
 ---
 ---Below the text, not above the first line: a winbar from lualine or navic
@@ -145,7 +177,9 @@ function M.paint()
   -- the rows this function added last time.
   vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
 
-  local rows = { M.bar_chunks(), M.mode_chunks() }
+  -- A copy: the statusline's rows are kept between paints and must not grow.
+  local rows = vim.list_extend({}, usage_rows())
+  table.insert(rows, M.mode_chunks())
   local win = Window.win_for(buf)
   if win then
     local ok, used = pcall(vim.api.nvim_win_text_height, win, {})

@@ -26,6 +26,11 @@ M.defaults = {
   -- Slash commands handled inside Neovim. A function(core, args) adds one;
   -- false stops sottocc intercepting a command so the CLI receives it.
   slash = {},
+  -- The usage row above the mode line. "claude" runs the statusLine command
+  -- from Claude Code's settings.json and draws what it prints, falling back
+  -- to "builtin" when there is none. A function(data) returns chunks, given
+  -- the same JSON the command would receive.
+  statusline = "claude",
   -- Passed as --permission-mode when set, so the starting mode is known
   -- before the first turn. "default" is not a value the flag accepts; leave
   -- this nil to take the CLI's own default.
