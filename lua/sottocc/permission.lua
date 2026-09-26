@@ -29,7 +29,11 @@ local current = nil
 -- What the left region held before the first prompt took it over. Saved once,
 -- not per request: a later request must never record the prompt it is about
 -- to replace as the thing to restore.
----@type { win: integer, buf: integer, view: table, focus: integer }?
+--
+-- The name is kept beside the handle because a buffer can be gone by the time
+-- the answer comes: oil deletes its hidden buffers two seconds after the last
+-- one leaves the screen, which a short queue of prompts easily outlasts.
+---@type { win: integer, buf: integer, name: string, view: table, focus: integer }?
 local saved = nil
 
 -- Windows a prompt opened beside the host, closed before the next is drawn.
@@ -80,8 +84,17 @@ local function restore()
   if not saved then return end
   if vim.api.nvim_win_is_valid(saved.win) then
     vim.wo[saved.win].winfixbuf = false
-    if vim.api.nvim_buf_is_valid(saved.buf) then
+    local back = vim.api.nvim_buf_is_valid(saved.buf)
+    if back then
       vim.api.nvim_win_set_buf(saved.win, saved.buf)
+    elseif saved.name ~= "" then
+      -- Gone while the prompts were up. The name still opens it, and for an
+      -- oil listing that means the directory comes back, not a blank window.
+      back = vim.api.nvim_win_call(saved.win, function()
+        return pcall(vim.cmd.edit, vim.fn.fnameescape(saved.name))
+      end)
+    end
+    if back then
       vim.api.nvim_win_call(saved.win, function()
         vim.cmd("diffoff")
         vim.fn.winrestview(saved.view)
@@ -132,9 +145,11 @@ function show(slot)
   end
 
   if not saved then
+    local buf = vim.api.nvim_win_get_buf(host)
     saved = {
       win = host,
-      buf = vim.api.nvim_win_get_buf(host),
+      buf = buf,
+      name = vim.api.nvim_buf_get_name(buf),
       view = vim.api.nvim_win_call(host, vim.fn.winsaveview),
       focus = vim.api.nvim_get_current_win(),
     }
