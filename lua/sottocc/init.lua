@@ -167,8 +167,10 @@ local function handle(msg)
     local req = msg.request or {}
     if req.subtype == "can_use_tool" then
       local input = req.input or {}
-      if Refresh.is_edit(req.tool_name) and input.file_path then
-        Snapshot.save(M.session_id, M.prompt_uuid, input.file_path)
+      -- NotebookEdit names its file notebook_path; the others, file_path.
+      local path = input.file_path or input.notebook_path
+      if Refresh.is_edit(req.tool_name) and path then
+        Snapshot.save(M.session_id, M.prompt_uuid, path)
       end
       Permission.ask(req.tool_name, input, function(behavior)
         local body = { behavior = behavior }
