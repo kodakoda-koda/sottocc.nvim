@@ -28,9 +28,8 @@ M.defaults = {
   slash = {},
   -- The row above the mode line. "claude" runs the statusLine command from
   -- Claude Code's settings.json and draws what it prints, or nothing when
-  -- there is none. "builtin" draws sottocc's own context and rate-limit
-  -- bars. A function(data) returns chunks, given the same JSON the command
-  -- would receive.
+  -- there is none. A function(data) returns chunks instead, given the same
+  -- JSON the command would receive.
   statusline = "claude",
   -- Passed as --permission-mode when set, so the starting mode is known
   -- before the first turn. "default" is not a value the flag accepts; leave

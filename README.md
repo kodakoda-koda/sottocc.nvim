@@ -17,7 +17,7 @@ over stdin and stdout, and draws the conversation itself.
 │         │   ⎿  1  vim.g.mapleader = " " │
 │         ├──────────────────────────────┤
 │         │ type here                     │
-│         │ ctx [██░░░░░░░░] 21%  5h …     │
+│         │ (your statusLine output)      │
 │         │ ⏸ manual mode on              │
 └─────────┴──────────────────────────────┘
 ```
@@ -102,9 +102,8 @@ seconds.
 The JSON is rebuilt from the stream, so fields the stream does not carry are
 missing or zero: `cost.total_lines_*`, `pr`, `prompt_cache`, `session_name`.
 
-Without a `statusLine` setting the row is left out. `statusline = "builtin"`
-draws sottocc's own context and rate-limit bars instead. A function gets the
-same JSON and returns chunks:
+Without a `statusLine` setting the row is left out. A function in its place
+gets the same JSON and returns chunks:
 
 ```lua
 statusline = function(data)
@@ -150,7 +149,7 @@ opts = {
   show_thinking = false,
   refresh = { "oil", "neo-tree", "nvim-tree", "mini.files" },  -- explorers to refresh after a change
   picker = "auto",              -- "auto", "vim.ui" or "builtin"
-  statusline = "claude",        -- "claude", "builtin" or function(data) return chunks end
+  statusline = "claude",        -- "claude" or function(data) return chunks end
   slash = {},                   -- { name = function(core, args) end } adds, { clear = false } passes through
   permission_mode = nil,        -- passed as --permission-mode when set
   permission_modes = { "manual", "acceptEdits", "plan", "auto" },

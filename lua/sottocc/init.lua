@@ -26,19 +26,9 @@ local pruned = false
 M.tools = {}
 -- tool_use_id -> the file an edit names, handed on with the refresh.
 M.tool_paths = {}
--- Context reading, kept in two halves: how much the last request carried, and
--- how much the model can hold.
-M.ctx_used = nil
-M.ctx_window = nil
 -- Set while an interrupt is in flight, so the abort it causes reads as an
 -- interruption rather than as a failure.
 M.interrupted = false
-
----Recompute the ctx percentage from whichever halves are known.
-local function update_ctx()
-  if not (M.ctx_used and M.ctx_window and M.ctx_window > 0) then return end
-  Winbar.state.ctx = math.min(100, M.ctx_used / M.ctx_window * 100)
-end
 
 ---The delegation tool, whose own steps arrive in this same stream tagged with
 ---its id. It has been called Task and is now called Agent.
@@ -75,7 +65,6 @@ local function handle(msg)
 
   if t == "system" and msg.subtype == "init" then
     Slash.available = msg.slash_commands or {}
-    Winbar.state.model = msg.model
     Winbar.state.status = nil
     M.mcp_servers = msg.mcp_servers or {}
     M.session_id = msg.session_id
@@ -91,16 +80,6 @@ local function handle(msg)
   elseif t == "system" and msg.subtype == "compact_boundary" then
     Render.notice("── compacted ──")
 
-  elseif t == "rate_limit_event" then
-    local w = (msg.rate_limit_info or {}).unifiedWindows or {}
-    for key in pairs({ five_hour = true, seven_day = true }) do
-      local info = w[key]
-      if info then
-        Winbar.state[key] = { pct = (info.utilization or 0) * 100, resets_at = info.resetsAt }
-      end
-    end
-    Winbar.paint()
-
   elseif t == "stream_event" then
     local e = msg.event or {}
     local cb = e.content_block
@@ -110,15 +89,6 @@ local function handle(msg)
     end
 
   elseif t == "assistant" then
-    -- The context is what this one request carried, not what the session has
-    -- spent: result.modelUsage accumulates across turns and runs past 100%.
-    local u = (msg.message or {}).usage
-    if type(u) == "table" then
-      M.ctx_used = (u.input_tokens or 0) + (u.cache_read_input_tokens or 0)
-          + (u.cache_creation_input_tokens or 0) + (u.output_tokens or 0)
-      update_ctx()
-      Winbar.paint()
-    end
     -- A message from a delegated subagent carries the id of the Agent call
     -- that spawned it. Its steps belong under that call, not beside it.
     local parent = parent_of(msg)
@@ -198,14 +168,6 @@ local function handle(msg)
 
   elseif t == "result" then
     Winbar.state.status = nil
-    -- modelUsage is only read for the window size; its token counts are
-    -- session totals, not the size of the current conversation.
-    local usage = msg.modelUsage or {}
-    local main = usage[Winbar.state.model or ""] or select(2, next(usage))
-    if type(main) == "table" and main.contextWindow then
-      M.ctx_window = main.contextWindow
-    end
-    update_ctx()
     Winbar.paint()
 
     local aborted = msg.terminal_reason == "aborted_streaming" or M.interrupted
@@ -238,9 +200,7 @@ function M.start(resume, session_id)
     local days = tonumber(Claude.settings().cleanupPeriodDays) or 30
     pcall(Snapshot.prune, days)
   end
-  M.ctx_used, M.ctx_window = nil, nil
   M.interrupted = false
-  Winbar.state.ctx = nil
   -- The CLI stays silent until the first prompt, so nothing would report the
   -- mode before then. Show what we asked for and let system/init correct it.
   Winbar.state.mode = Config.options.permission_mode or "default"
