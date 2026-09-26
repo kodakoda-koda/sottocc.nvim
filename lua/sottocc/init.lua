@@ -23,6 +23,8 @@ M.prompt_uuid = nil
 local pruned = false
 -- tool_use_id -> tool name, so results know whether a refresh is due.
 M.tools = {}
+-- tool_use_id -> the file an edit names, handed on with the refresh.
+M.tool_paths = {}
 -- Context reading, kept in two halves: how much the last request carried, and
 -- how much the model can hold.
 M.ctx_used = nil
@@ -123,6 +125,8 @@ local function handle(msg)
         if parent then Render.nested_text(parent, b.text) else Render.agent_text(b.text) end
       elseif b.type == "tool_use" then
         M.tools[b.id] = b.name
+        local input = type(b.input) == "table" and b.input or {}
+        M.tool_paths[b.id] = input.file_path or input.notebook_path
         if parent then
           Render.nested_tool(parent, b.name, b.input or {})
         else
@@ -157,8 +161,8 @@ local function handle(msg)
         else
           Render.tool_result(b.tool_use_id, content, b.is_error)
         end
-        if Config.options.auto_refresh and name and Refresh.is_edit(name) then
-          Refresh.run()
+        if name and Refresh.touches_files(name) then
+          Refresh.run({ M.tool_paths[b.tool_use_id] })
         end
       end
     end
@@ -220,6 +224,7 @@ function M.start(resume, session_id)
   if M.proc and M.proc.alive then return end
   M.cwd = vim.fn.getcwd()
   M.tools = {}
+  M.tool_paths = {}
   -- The CLI names the session only once the first prompt is answered. Until
   -- then, a resume or a chosen id already says which session it is, and a
   -- fresh start has none: keeping the previous id would aim a rewind at the
@@ -387,7 +392,7 @@ function M.rewind(_, args)
     local restored
     if with_code then
       restored = Snapshot.restore_from(Session.uuids_from(id, cwd, entry.record))
-      if #restored > 0 then Refresh.run() end
+      if #restored > 0 then Refresh.run(restored) end
     end
 
     -- Reported after the resume, which clears the buffer on its way in.

@@ -13,8 +13,10 @@ M.defaults = {
   max_tool_result_lines = 200,
   -- v1 drops thinking entirely rather than folding it.
   show_thinking = false,
-  -- Reload changed buffers and refresh oil after file-editing tools.
-  auto_refresh = true,
+  -- File explorers to refresh after Claude changes files; only those already
+  -- loaded are touched. false refreshes none, but changed buffers are still
+  -- reloaded and User SottoccFilesChanged still fires.
+  refresh = { "oil", "neo-tree", "nvim-tree", "mini.files" },
   -- Passed as --permission-mode when set, so the starting mode is known
   -- before the first turn. "default" is not a value the flag accepts; leave
   -- this nil to take the CLI's own default.
