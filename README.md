@@ -102,9 +102,9 @@ seconds.
 The JSON is rebuilt from the stream, so fields the stream does not carry are
 missing or zero: `cost.total_lines_*`, `pr`, `prompt_cache`, `session_name`.
 
-Without a `statusLine` setting, or with `statusline = "builtin"`, sottocc
-draws its own context and rate-limit bars. A function gets the same JSON and
-returns chunks:
+Without a `statusLine` setting the row is left out. `statusline = "builtin"`
+draws sottocc's own context and rate-limit bars instead. A function gets the
+same JSON and returns chunks:
 
 ```lua
 statusline = function(data)

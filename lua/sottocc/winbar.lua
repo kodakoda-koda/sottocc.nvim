@@ -146,20 +146,16 @@ local function usage_rows()
     end
     return { { { ok and "statusline: not a table" or ("statusline: " .. tostring(r)), "ErrorMsg" } } }
   end
-  if mode == "claude" then
-    local rows = Statusline.rows()
-    if rows then
-      -- The command cannot see system/status, so it is appended here.
-      local s = M.state.status
-      if type(s) == "string" and s ~= "" then
-        rows = vim.deepcopy(rows)
-        if #rows == 0 then rows[1] = {} end
-        table.insert(rows[#rows], { " " .. s, DIM })
-      end
-      return rows
-    end
+  if mode == "builtin" then return { M.bar_chunks() } end
+  -- Nothing until the command prints, and nothing at all without one.
+  local rows = vim.deepcopy(Statusline.rows() or {})
+  -- The command cannot see system/status, so it is appended here.
+  local s = M.state.status
+  if type(s) == "string" and s ~= "" then
+    if #rows == 0 then rows[1] = {} end
+    table.insert(rows[#rows], { " " .. s, DIM })
   end
-  return { M.bar_chunks() }
+  return rows
 end
 
 ---Repaint the two virtual rows, held against the bottom of the prompt window.
