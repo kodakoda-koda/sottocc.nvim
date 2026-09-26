@@ -301,7 +301,7 @@ function M.interrupt()
   end
   M.interrupted = true
   -- Requests still queued belong to the turn being abandoned; deny them so
-  -- the CLI is not left waiting and the left region comes back.
+  -- the CLI is not left waiting and the region beside the column comes back.
   Permission.reset()
   M.proc:interrupt()
 end

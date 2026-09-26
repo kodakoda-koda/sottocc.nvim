@@ -1,6 +1,7 @@
 -- The sottocc column: output buffer on top, prompt buffer below, pinned to the
--- right edge. Both windows carry 'winfixbuf' so nothing can steal them, and
--- the left region (oil, a file, anything) is never touched.
+-- right edge, or the left one with position = "left". Both windows carry
+-- 'winfixbuf' so nothing can steal them, and the rest of the screen (oil, a
+-- file, anything) is never touched.
 
 local Config = require("sottocc.config")
 
@@ -78,8 +79,8 @@ function M.open()
       and M.output_buf or make_output_buf()
   M.prompt_buf = (M.prompt_buf and vim.api.nvim_buf_is_valid(M.prompt_buf))
       and M.prompt_buf or make_prompt_buf()
-  -- Claim a fresh column at the far right; the left region survives untouched.
-  vim.cmd("botright vsplit")
+  -- Claim a fresh column at the far edge; the rest survives untouched.
+  vim.cmd(Config.options.position == "left" and "topleft vsplit" or "botright vsplit")
   local out_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(out_win, M.output_buf)
   vim.api.nvim_win_set_width(out_win, math.floor(vim.o.columns * Config.options.width_ratio))

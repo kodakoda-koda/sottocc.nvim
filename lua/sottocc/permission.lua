@@ -1,4 +1,4 @@
--- Permission prompts cover the region LEFT of the sottocc column, and nothing
+-- Permission prompts cover the region beside the sottocc column, and nothing
 -- else. They are floating windows, so whatever splits the user has there are
 -- neither closed nor resized: the prompt sits on top and the layout underneath
 -- comes back untouched.
@@ -37,20 +37,29 @@ local floats = {}
 ---@type integer?
 local focus = nil
 
----The rectangle left of the sottocc column, in editor coordinates.
+---The rectangle beside the sottocc column -- left of it, or right of it when
+---the column sits on the left -- in editor coordinates.
 ---@return { row: integer, col: integer, width: integer, height: integer }?
-local function left_region()
+local function free_region()
   local out = Window.win_for(Window.output_buf)
   if not out then return nil end
+  local out_col = vim.api.nvim_win_get_position(out)[2]
   -- One column of the gap is the vertical separator.
-  local width = vim.api.nvim_win_get_position(out)[2] - 1
+  local col, width
+  if out_col == 0 then
+    col = vim.api.nvim_win_get_width(out) + 1
+    width = vim.o.columns - col
+  else
+    col = 0
+    width = out_col - 1
+  end
   if width < 20 then return nil end
 
   local tabs = #vim.api.nvim_list_tabpages()
   local top = (vim.o.showtabline == 2 or (vim.o.showtabline == 1 and tabs > 1)) and 1 or 0
   local height = vim.o.lines - vim.o.cmdheight - 1 - top
   if height < 5 then return nil end
-  return { row = top, col = 0, width = width, height = height }
+  return { row = top, col = col, width = width, height = height }
 end
 
 ---@param lines string[]
@@ -221,7 +230,7 @@ end
 ---@param slot { req: sottocc.Request, answered: boolean }
 function show(slot)
   local req = slot.req
-  local rect = left_region()
+  local rect = free_region()
   if not rect then
     -- Nowhere to draw: fall back to a plain confirm rather than silently
     -- doing nothing.

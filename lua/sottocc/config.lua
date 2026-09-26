@@ -5,6 +5,9 @@ M.defaults = {
   cmd = "claude",
   -- Extra CLI args appended after the fixed stream-json flags.
   extra_args = {},
+  -- Which edge the sottocc column sits on: "right" or "left". Permission
+  -- prompts cover the rest of the screen.
+  position = "right",
   -- Width of the sottocc column as a fraction of the screen.
   width_ratio = 0.4,
   prompt_height = 10,

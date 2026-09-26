@@ -122,11 +122,13 @@ session here have no snapshots, and the conversation is restored alone.
 opts = {
   cmd = "claude",
   extra_args = {},
+  position = "right",           -- or "left"
   width_ratio = 0.4,
   prompt_height = 10,
   max_tool_result_lines = 200,
   show_thinking = false,
   refresh = { "oil", "neo-tree", "nvim-tree", "mini.files" },  -- explorers to refresh after a change
+  picker = "auto",              -- "auto", "vim.ui" or "builtin"
   permission_mode = nil,        -- passed as --permission-mode when set
   permission_modes = { "manual", "acceptEdits", "plan", "auto" },
   keymaps = {
