@@ -8,6 +8,12 @@
 -- Only /resume is outright refused by the CLI in headless mode; the rest are
 -- intercepted because a Neovim UI beats a round-trip in the transcript.
 
+--
+-- The user's `slash` option layers on top: a function adds a local command,
+-- and false drops a local one so the text goes to the CLI instead.
+
+local Config = require("sottocc.config")
+
 local M = {}
 
 -- Advertised by system/init; used for completion.
@@ -16,7 +22,7 @@ M.available = {}
 ---@param core table the sottocc module
 ---@return table<string, { kind: string, fn: fun(core: table, args: string)? }>
 local function table_for(core)
-  return {
+  local t = {
     resume = { kind = "local", fn = core.resume },
     rewind = { kind = "local", fn = core.rewind },
     clear = { kind = "local", fn = core.clear },
@@ -24,6 +30,14 @@ local function table_for(core)
     mcp = { kind = "local", fn = core.mcp },
     compact = { kind = "observed" },
   }
+  for name, v in pairs(Config.options.slash or {}) do
+    if v == false then
+      t[name] = nil
+    elseif type(v) == "function" then
+      t[name] = { kind = "local", fn = v }
+    end
+  end
+  return t
 end
 
 ---Decide what to do with a submitted prompt.
@@ -48,7 +62,7 @@ end
 ---@return string[]
 function M.candidates()
   local seen, out = {}, {}
-  for _, name in ipairs({ "resume", "rewind", "clear", "model", "mcp", "compact" }) do
+  for name in pairs(table_for(require("sottocc"))) do
     seen[name] = true
     table.insert(out, "/" .. name)
   end

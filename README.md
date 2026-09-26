@@ -129,6 +129,7 @@ opts = {
   show_thinking = false,
   refresh = { "oil", "neo-tree", "nvim-tree", "mini.files" },  -- explorers to refresh after a change
   picker = "auto",              -- "auto", "vim.ui" or "builtin"
+  slash = {},                   -- { name = function(core, args) end } adds, { clear = false } passes through
   permission_mode = nil,        -- passed as --permission-mode when set
   permission_modes = { "manual", "acceptEdits", "plan", "auto" },
   keymaps = {
