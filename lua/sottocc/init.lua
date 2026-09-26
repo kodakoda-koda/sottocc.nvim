@@ -1,3 +1,4 @@
+local Claude = require("sottocc.claude")
 local Config = require("sottocc.config")
 local Process = require("sottocc.process")
 local Window = require("sottocc.window")
@@ -14,9 +15,12 @@ local M = {}
 
 M.proc = nil
 M.cwd = nil
--- Counts prompts in this session; snapshots are filed under it so a rewind
--- knows which copies predate the point being restored.
-M.turn = 0
+-- The transcript uuid of the prompt being answered, as the CLI echoes it
+-- back; snapshots are filed under it so a rewind knows which copies predate
+-- the point being restored.
+M.prompt_uuid = nil
+-- Stale snapshots are pruned once per Neovim, on the first start.
+local pruned = false
 -- tool_use_id -> tool name, so results know whether a refresh is due.
 M.tools = {}
 -- Context reading, kept in two halves: how much the last request carried, and
@@ -128,6 +132,12 @@ local function handle(msg)
       end
     end
 
+  elseif t == "user" and msg.isReplay then
+    -- Our own prompt, echoed back by --replay-user-messages. It is already
+    -- on screen; what it adds is the uuid of its transcript record.
+    if type(msg.uuid) == "string" then M.prompt_uuid = msg.uuid end
+    if type(msg.session_id) == "string" then M.session_id = msg.session_id end
+
   elseif t == "user" then
     local parent = parent_of(msg)
     for _, b in ipairs((msg.message or {}).content or {}) do
@@ -158,7 +168,7 @@ local function handle(msg)
     if req.subtype == "can_use_tool" then
       local input = req.input or {}
       if Refresh.is_edit(req.tool_name) and input.file_path then
-        Snapshot.save(M.session_id, M.turn, input.file_path)
+        Snapshot.save(M.session_id, M.prompt_uuid, input.file_path)
       end
       Permission.ask(req.tool_name, input, function(behavior)
         local body = { behavior = behavior }
@@ -207,7 +217,16 @@ function M.start(resume)
   if M.proc and M.proc.alive then return end
   M.cwd = vim.fn.getcwd()
   M.tools = {}
-  M.turn = 0
+  -- The CLI names the session only once the first prompt is answered. Until
+  -- then, a resume already knows which session it is, and a fresh start has
+  -- none: keeping the previous id would aim a rewind at the wrong transcript.
+  M.session_id = resume
+  M.prompt_uuid = nil
+  if not pruned then
+    pruned = true
+    local days = tonumber(Claude.settings().cleanupPeriodDays) or 30
+    pcall(Snapshot.prune, days)
+  end
   M.ctx_used, M.ctx_window = nil, nil
   M.interrupted = false
   Winbar.state.ctx = nil
@@ -261,7 +280,6 @@ function M.submit()
 
   if not (M.proc and M.proc.alive) then M.start() end
   M.interrupted = false
-  M.turn = M.turn + 1
   Render.user_message(text)
   M.proc:send_user(text)
 end
@@ -358,7 +376,7 @@ function M.rewind(_, args)
 
   local function do_rewind(entry, with_code)
     if with_code then
-      local restored = Snapshot.restore_from(id, entry.turn)
+      local restored = Snapshot.restore_from(Session.uuids_from(id, cwd, entry.record))
       if #restored == 0 then
         Render.notice("no snapshots for this range; code left as it is")
       else

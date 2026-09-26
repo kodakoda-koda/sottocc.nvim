@@ -173,7 +173,7 @@ end
 ---The prompts a rewind can return to, newest last.
 ---
 ---`record` is the index of the transcript line that carries the prompt;
----`turn` counts prompts from one, which is how snapshots are filed.
+---`turn` counts prompts from one, for display.
 ---@param id string
 ---@param cwd string
 ---@return { record: integer, turn: integer, text: string }[]
@@ -197,6 +197,30 @@ function M.user_turns(id, cwd)
           turn = turn,
           text = text:gsub("%s+", " "):sub(1, 70),
         })
+      end
+    end
+  end
+  fd:close()
+  return out
+end
+
+---The uuids of every user record from `record` onward, in transcript order:
+---the turns a rewind to `record` undoes.
+---@param id string
+---@param cwd string
+---@param record integer 1-based transcript line
+---@return string[]
+function M.uuids_from(id, cwd, record)
+  local fd = io.open(M.transcript(id, cwd), "r")
+  if not fd then return {} end
+
+  local out, idx = {}, 0
+  for line in fd:lines() do
+    idx = idx + 1
+    if idx >= record then
+      local ok, rec = pcall(vim.json.decode, line)
+      if ok and type(rec) == "table" and rec.type == "user" and type(rec.uuid) == "string" then
+        table.insert(out, rec.uuid)
       end
     end
   end

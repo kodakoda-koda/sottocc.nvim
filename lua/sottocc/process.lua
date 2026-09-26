@@ -15,6 +15,9 @@ local FIXED_ARGS = {
   "--include-partial-messages",
   "--verbose",
   "--permission-prompt-tool", "stdio",
+  -- Echoes each prompt back with the uuid of its transcript record, which is
+  -- what snapshots are filed under.
+  "--replay-user-messages",
 }
 
 ---@param opts { cwd: string, resume: string?, on_message: fun(msg: table), on_exit: fun(code: integer, deliberate: boolean) }
