@@ -5,7 +5,7 @@
 --   observed    sent to the CLI, but we react to what comes back
 --   passthrough sent as-is (the other ~60 commands the CLI advertises)
 --
--- Only /resume is outright refused by the CLI in headless mode; the rest are
+-- The CLI refuses /resume and /rewind in headless mode; the rest are
 -- intercepted because a Neovim UI beats a round-trip in the transcript.
 
 --
