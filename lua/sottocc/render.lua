@@ -106,8 +106,11 @@ local function replace_line(key, text, hl)
   local row = row_of(key)
   if not row then return end
   Window.with_output(function(buf)
-    vim.api.nvim_buf_set_lines(buf, row, row + 1, false, { text })
-    -- set_lines can drift the anchor; pin it back to this exact row.
+    -- The text only, not the line: replacing the line that opens a fold
+    -- makes Neovim end the fold a line early.
+    local old = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+    vim.api.nvim_buf_set_text(buf, row, 0, row, #old, { text })
+    -- The anchor may have moved with the text; pin it back to column 0.
     M.blocks[key] = vim.api.nvim_buf_set_extmark(buf, NS, row, 0, {})
     if hl then
       vim.api.nvim_buf_set_extmark(buf, NS, row, 0, { line_hl_group = hl })
