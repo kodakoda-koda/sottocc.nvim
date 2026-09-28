@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stands in for the claude CLI: ignores its arguments and prints a recorded
+# stream, then exits as the CLI does when stdin is closed.
+exec cat "$SOTTOCC_FIXTURE"
