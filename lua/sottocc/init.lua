@@ -27,6 +27,9 @@ local pruned = false
 M.tools = {}
 -- tool_use_id -> the file an edit names, handed on with the refresh.
 M.tool_paths = {}
+-- Agent calls running in the background, by tool_use_id. Their tool_result
+-- only says the agent was launched; the report comes in task_notification.
+M.background = {}
 -- Set while an interrupt is in flight, so the abort it causes reads as an
 -- interruption rather than as a failure.
 M.interrupted = false
@@ -59,6 +62,22 @@ local MODELS = {
 
 --------------------------------------------------------------------- events
 
+---A background agent's task_notification, in the shape of the tool_result a
+---foreground agent returns, so both close the same way. Only the usage: the
+---summary repeats the agent's last message, already drawn among its steps.
+---@param msg table
+---@return string
+local function background_report(msg)
+  local u = type(msg.usage) == "table" and msg.usage or {}
+  local usage = {}
+  for _, k in ipairs({ "tool_uses", "total_tokens", "duration_ms" }) do
+    if tonumber(u[k]) then
+      table.insert(usage, ("%s: %d"):format(k == "total_tokens" and "subagent_tokens" or k, u[k]))
+    end
+  end
+  return ("<usage>%s</usage>"):format(table.concat(usage, "\n"))
+end
+
 ---@param msg table
 local function handle(msg)
   local t = msg.type
@@ -77,6 +96,19 @@ local function handle(msg)
     -- the bar rather than letting it blow up the renderer.
     Winbar.state.status = type(msg.status) == "string" and msg.status or nil
     Winbar.paint()
+
+  elseif t == "system" and msg.subtype == "task_started" then
+    if msg.is_backgrounded and type(msg.tool_use_id) == "string" then
+      M.background[msg.tool_use_id] = true
+    end
+
+  elseif t == "system" and msg.subtype == "task_notification" then
+    local id = msg.tool_use_id
+    if type(id) == "string" and M.background[id] then
+      M.background[id] = nil
+      local status = type(msg.status) == "string" and msg.status or "completed"
+      Render.agent_done(id, background_report(msg), status ~= "completed" and status or nil)
+    end
 
   elseif t == "system" and msg.subtype == "compact_boundary" then
     Render.notice("── compacted ──")
@@ -130,7 +162,8 @@ local function handle(msg)
         if parent then
           Render.nested_result(parent, content)
         elseif is_agent(name) then
-          Render.agent_done(b.tool_use_id, content)
+          -- A background agent has only been launched; it closes later.
+          if not M.background[b.tool_use_id] then Render.agent_done(b.tool_use_id, content) end
         else
           Render.tool_result(b.tool_use_id, content, b.is_error)
         end
@@ -190,6 +223,7 @@ function M.start(resume, session_id)
   M.cwd = vim.fn.getcwd()
   M.tools = {}
   M.tool_paths = {}
+  M.background = {}
   -- The CLI names the session only once the first prompt is answered. Until
   -- then, a resume or a chosen id already says which session it is, and a
   -- fresh start has none: keeping the previous id would aim a rewind at the

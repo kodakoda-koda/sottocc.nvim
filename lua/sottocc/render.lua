@@ -449,7 +449,8 @@ end
 ---the hand-back report goes inside the fold rather than on screen.
 ---@param id string
 ---@param content string
-function M.agent_done(id, content)
+---@param status string? how a background agent ended, when not completed
+function M.agent_done(id, content, status)
   content = content or ""
   local uses = content:match("tool_uses:%s*(%d+)")
   local tokens = content:match("subagent_tokens:%s*(%d+)")
@@ -461,15 +462,16 @@ function M.agent_done(id, content)
   end
   if tokens then table.insert(bits, fmt_tokens(tonumber(tokens))) end
   if ms then table.insert(bits, ("%.1fs"):format(tonumber(ms) / 1000)) end
-  local head = #bits > 0 and ("Done (%s)"):format(table.concat(bits, " · ")) or "Done"
+  local word = status and (status:sub(1, 1):upper() .. status:sub(2)) or "Done"
+  local head = #bits > 0 and ("%s (%s)"):format(word, table.concat(bits, " · ")) or word
 
   if M.blocks["res:" .. id] then
     replace_line("res:" .. id, GLYPH.result .. head, "SottoccResult")
   end
 
-  local body = content:gsub("<usage>.-</usage>%s*$", "")
+  local body = vim.trim((content:gsub("<usage>.-</usage>%s*$", "")))
   local lines = {}
-  for _, l in ipairs(vim.split(vim.trim(body), "\n", { plain = true })) do
+  for _, l in ipairs(body == "" and {} or vim.split(body, "\n", { plain = true })) do
     table.insert(lines, NEST .. "   " .. l)
   end
   insert_after("end:" .. id, lines)
