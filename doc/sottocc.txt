@@ -1,0 +1,263 @@
+*sottocc.txt*  Claude Code in Neovim, quietly.
+
+==============================================================================
+CONTENTS                                                    *sottocc-contents*
+
+  1. Introduction ............................ |sottocc-introduction|
+  2. Setup ................................... |sottocc-setup|
+  3. Commands ................................ |sottocc-commands|
+  4. Keys .................................... |sottocc-keys|
+  5. Files ................................... |sottocc-files|
+  6. Slash commands .......................... |sottocc-slash|
+  7. Status line ............................. |sottocc-statusline|
+  8. Permissions ............................. |sottocc-permissions|
+  9. Rewind .................................. |sottocc-rewind|
+ 10. Configuration ........................... |sottocc-config|
+ 11. Highlights .............................. |sottocc-highlights|
+ 12. Events .................................. |sottocc-events|
+
+==============================================================================
+1. Introduction                                         *sottocc-introduction*
+
+sottocc speaks stream-json to the `claude` CLI over stdin and stdout and
+draws the conversation into an ordinary buffer. A column at the edge of the
+screen holds the output buffer on top and the prompt buffer below; the rest
+of the screen is left as it is.
+
+Tool results are folded shut, as in the CLI. They are ordinary folds, so
+|za|, |zo|, |zR| and |zM| work, and |/| finds text inside a closed one.
+
+Requirements:
+- Neovim 0.10 or newer
+- `claude` in $PATH, already logged in
+
+Run |:checkhealth| sottocc to check both.
+
+==============================================================================
+2. Setup                                                       *sottocc-setup*
+
+The commands exist from startup. |sottocc.setup()| is only needed to change
+the defaults, and runs with the defaults on the first command otherwise.
+
+                                                             *sottocc.setup()*
+require("sottocc").setup({opts})
+    Apply {opts} over the defaults in |sottocc-config|.
+
+With lazy.nvim: >lua
+    {
+      "kodakoda-koda/sottocc.nvim",
+      opts = {},
+      keys = {
+        { "<leader>ss", "<cmd>Sottocc<cr>", desc = "Toggle sottocc" },
+      },
+    }
+<
+==============================================================================
+3. Commands                                                 *sottocc-commands*
+
+:Sottocc                                                            *:Sottocc*
+    Open the column, or close it when open. Opening starts a session if
+    none is running.
+
+:SottoccOpen                                                    *:SottoccOpen*
+:SottoccClose                                                  *:SottoccClose*
+    Open or close the column. Closing leaves the session running.
+
+:SottoccStop                                                    *:SottoccStop*
+    End the session.
+
+:SottoccClear                                                  *:SottoccClear*
+    Start a new session in an empty buffer. Same as `/clear`.
+
+:SottoccInterrupt                                          *:SottoccInterrupt*
+    Stop the turn in progress. The session stays open.
+
+:SottoccResume [{id}]                                         *:SottoccResume*
+    Pick an earlier session of the current directory, or continue {id}.
+    Same as `/resume`.
+
+:SottoccRewind [{n}]                                          *:SottoccRewind*
+    Pick a prompt to return to, or the {n}th one. Same as `/rewind`.
+
+:SottoccModel [{model}]                                        *:SottoccModel*
+    Pick a model, or switch to {model}. Same as `/model`.
+
+:SottoccMcp                                                      *:SottoccMcp*
+    List the MCP servers and their status. Same as `/mcp`.
+
+:SottoccMode                                                    *:SottoccMode*
+    Move to the next permission mode in `permission_modes`.
+
+:SottoccPermissionMode {mode}                         *:SottoccPermissionMode*
+    Switch the session to {mode}.
+
+:[range]SottoccAdd                                               *:SottoccAdd*
+    Put the current file into the prompt as `@path`, or with [range] the
+    lines as `@path#L10-20`. See |sottocc-files|.
+
+==============================================================================
+4. Keys                                                         *sottocc-keys*
+
+In the prompt buffer:
+
+    <CR>        (normal mode) send the prompt
+    <C-c>       interrupt the turn in progress
+    <S-Tab>     next permission mode
+    go          jump to the output buffer
+    <C-x><C-o>  complete a slash command
+
+In the output buffer:
+
+    <C-c>       interrupt the turn in progress
+    <S-Tab>     next permission mode
+    gp          jump to the prompt buffer
+    gf          open the file on this line, see |sottocc-files|
+
+Insert mode <CR> inserts a newline. The keys are set in `keymaps`, see
+|sottocc-config|.
+
+==============================================================================
+5. Files                                                       *sottocc-files*
+
+|:SottoccAdd| puts the current file into the prompt as `@path`, and
+`:'<,'>SottoccAdd` the selected lines as `@path#L10-20`. The CLI attaches
+them itself, so Claude reads only those lines. A path inside the session's
+directory is written relative to it.
+
+In the output buffer, `gf` on a tool line or its result opens the file the
+tool named, in a window beside the column:
+- a Read at the line it read from
+- an Edit at the text it wrote
+- any other file tool at the top of the file
+
+A result line that is a path, with or without `:line`, opens that path.
+Grep and Glob print these.
+
+==============================================================================
+6. Slash commands                                              *sottocc-slash*
+
+Everything the CLI advertises passes straight through, including plugin
+commands. These are handled in Neovim instead:
+
+    /resume     |:SottoccResume|
+    /rewind     |:SottoccRewind|
+    /clear      |:SottoccClear|
+    /model      |:SottoccModel|
+    /mcp        |:SottoccMcp|
+
+The `slash` option adds commands and gives these back to the CLI: >lua
+    slash = {
+      hello = function(core, args) vim.notify("hi " .. args) end,
+      clear = false,
+    }
+<
+==============================================================================
+7. Status line                                            *sottocc-statusline*
+
+The row above the permission mode is the `statusLine` command from Claude
+Code's settings.json, run the way the CLI runs it: the session as JSON on
+stdin, its output drawn with its ANSI colours. It reruns after each
+assistant message, result and rate-limit update, and every
+`refreshInterval` seconds.
+
+The JSON is rebuilt from the stream, so fields the stream does not carry are
+missing or zero: `cost.total_lines_*`, `pr`, `prompt_cache`, `session_name`.
+
+Without a `statusLine` setting the row is left out. A function in the
+`statusline` option gets the same JSON and returns chunks: >lua
+    statusline = function(data)
+      return { { data.model.display_name, "Title" } }
+    end
+<
+==============================================================================
+8. Permissions                                           *sottocc-permissions*
+
+A permission request floats over everything beside the column. Splits
+already open there are not closed or resized. Edits show as a before and
+after diff across that region. Answer with `y`, or deny with `n`, `q` or
+<Esc>.
+
+There is no "always allow": change the permission mode for that, with
+<S-Tab> or |:SottoccPermissionMode|.
+
+==============================================================================
+9. Rewind                                                     *sottocc-rewind*
+
+Restoring the conversation forks the transcript and resumes the copy; the
+original session is left intact.
+
+Restoring the code uses snapshots taken just before each edit is approved,
+under `stdpath("data")/sottocc/`. Turns from before the session was opened
+in sottocc have no snapshots, and only the conversation is restored.
+
+==============================================================================
+10. Configuration                                             *sottocc-config*
+
+The defaults: >lua
+    {
+      cmd = "claude",
+      -- Extra CLI args appended after the fixed stream-json flags.
+      extra_args = {},
+      -- "right" or "left".
+      position = "right",
+      -- Width of the column as a fraction of the screen.
+      width_ratio = 0.4,
+      prompt_height = 10,
+      -- Longer tool results end in an ellipsis line.
+      max_tool_result_lines = 200,
+      -- File explorers refreshed after Claude changes files. false
+      -- refreshes none.
+      refresh = { "oil", "neo-tree", "nvim-tree", "mini.files" },
+      -- "auto", "vim.ui" or "builtin".
+      picker = "auto",
+      -- See |sottocc-slash|.
+      slash = {},
+      -- "claude" or a function, see |sottocc-statusline|.
+      statusline = "claude",
+      -- Passed as --permission-mode when set.
+      permission_mode = nil,
+      -- The ring <S-Tab> walks.
+      permission_modes = { "manual", "acceptEdits", "plan", "auto" },
+      keymaps = {
+        submit = "<CR>",
+        interrupt = "<C-c>",
+        goto_output = "go",
+        goto_prompt = "gp",
+        cycle_mode = "<S-Tab>",
+        open_file = "gf",
+      },
+    }
+<
+`picker = "auto"` uses |vim.ui.select()| when a plugin has replaced it, and
+a small float of its own otherwise.
+
+==============================================================================
+11. Highlights                                            *sottocc-highlights*
+
+Each group links to the one on the right unless it is already defined.
+
+    SottoccUser         Title               the prompts you sent
+    SottoccResult       Comment             tool results, notices
+    SottoccError        DiagnosticError     errors
+    SottoccCode         @markup.raw         code blocks and inline code
+    SottoccFence        Comment             the ``` lines of a code block
+    SottoccModeAuto     DiagnosticWarn      a mode that does not ask
+    SottoccModePaused   Comment             a mode that asks
+
+The status line's colours come from its ANSI output, as generated
+`SottoccAnsi*` groups.
+
+==============================================================================
+12. Events                                                    *sottocc-events*
+
+                                                         *SottoccFilesChanged*
+User SottoccFilesChanged
+    After an edit tool or Bash has run and changed buffers are reloaded.
+    `data.paths` holds the file an edit named, and is empty after Bash,
+    which does not say what it touched: >lua
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "SottoccFilesChanged",
+      callback = function(ev) vim.print(ev.data.paths) end,
+    })
+<
+ vim:tw=78:ts=8:ft=help:norl:
