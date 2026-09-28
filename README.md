@@ -27,6 +27,8 @@ over stdin and stdout, and draws the conversation itself.
 - Neovim 0.10+
 - `claude` in `$PATH`, already logged in
 
+`:checkhealth sottocc` checks both.
+
 ## Install
 
 ```lua
@@ -41,6 +43,9 @@ over stdin and stdout, and draws the conversation itself.
   },
 }
 ```
+
+The commands exist without `setup()`; `opts` only changes the defaults.
+`:help sottocc` lists every command, option and highlight group.
 
 ## Keys
 
@@ -157,7 +162,6 @@ opts = {
   width_ratio = 0.4,
   prompt_height = 10,
   max_tool_result_lines = 200,
-  show_thinking = false,
   refresh = { "oil", "neo-tree", "nvim-tree", "mini.files" },  -- explorers to refresh after a change
   picker = "auto",              -- "auto", "vim.ui" or "builtin"
   statusline = "claude",        -- "claude" or function(data) return chunks end

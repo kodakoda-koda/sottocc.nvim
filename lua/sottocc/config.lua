@@ -14,8 +14,6 @@ M.defaults = {
   -- Tool results longer than this are truncated with an ellipsis line. The
   -- result is folded shut anyway, so a generous cap costs no screen space.
   max_tool_result_lines = 200,
-  -- v1 drops thinking entirely rather than folding it.
-  show_thinking = false,
   -- File explorers to refresh after Claude changes files; only those already
   -- loaded are touched. false refreshes none, but changed buffers are still
   -- reloaded and User SottoccFilesChanged still fires.
