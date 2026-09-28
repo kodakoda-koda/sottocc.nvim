@@ -31,7 +31,12 @@ local ticker = nil
 local function setting()
   if Config.options.statusline ~= "claude" then return nil end
   local s = Claude.setting("statusLine", vim.fn.getcwd())
-  if type(s) == "table" and s.type == "command" and type(s.command) == "string" and s.command ~= "" then
+  if
+    type(s) == "table"
+    and s.type == "command"
+    and type(s.command) == "string"
+    and s.command ~= ""
+  then
     return s
   end
 end
@@ -46,7 +51,9 @@ function M.display_name(id)
   if type(id) ~= "string" then return nil end
   local base = id:gsub("%[.*%]$", "")
   local family, rest = base:match("^claude%-(%a+)%-?(.*)$")
-  if not family then family, rest = base:match("^(%a+)$"), "" end
+  if not family then
+    family, rest = base:match("^(%a+)$"), ""
+  end
   if not family then return id end
   local version = {}
   for n in (rest or ""):gmatch("%d+") do
@@ -108,18 +115,17 @@ function M.observe(msg)
       data.transcript_path = Session.transcript(msg.session_id, data.workspace.project_dir)
     end
     M.trigger()
-
   elseif t == "system" and msg.subtype == "compact_boundary" then
     M.trigger()
-
   elseif t == "assistant" then
     -- A subagent's request says nothing about the main context.
     if type(msg.parent_tool_use_id) == "string" then return end
     local u = (msg.message or {}).usage
     if type(u) ~= "table" then return end
     local cw = data.context_window
-    local input = (u.input_tokens or 0) + (u.cache_creation_input_tokens or 0)
-        + (u.cache_read_input_tokens or 0)
+    local input = (u.input_tokens or 0)
+      + (u.cache_creation_input_tokens or 0)
+      + (u.cache_read_input_tokens or 0)
     cw.total_input_tokens = input
     cw.total_output_tokens = u.output_tokens or 0
     cw.current_usage = {
@@ -134,7 +140,6 @@ function M.observe(msg)
     cw.remaining_percentage = 100 - pct
     data.exceeds_200k_tokens = input + cw.total_output_tokens > 200000
     M.trigger()
-
   elseif t == "rate_limit_event" then
     local w = (msg.rate_limit_info or {}).unifiedWindows or {}
     for _, key in ipairs({ "five_hour", "seven_day" }) do
@@ -148,7 +153,6 @@ function M.observe(msg)
       end
     end
     M.trigger()
-
   elseif t == "result" then
     local usage = msg.modelUsage or {}
     local main = usage[(data.model or {}).id or ""] or select(2, next(usage))
@@ -163,7 +167,8 @@ function M.observe(msg)
     end
     if type(msg.total_cost_usd) == "number" then data.cost.total_cost_usd = msg.total_cost_usd end
     data.cost.total_duration_ms = data.cost.total_duration_ms + (tonumber(msg.duration_ms) or 0)
-    data.cost.total_api_duration_ms = data.cost.total_api_duration_ms + (tonumber(msg.duration_api_ms) or 0)
+    data.cost.total_api_duration_ms = data.cost.total_api_duration_ms
+      + (tonumber(msg.duration_api_ms) or 0)
     M.trigger()
   end
 end
@@ -172,8 +177,22 @@ end
 
 -- xterm's first sixteen, used when the colorscheme sets no terminal colours.
 local BASE16 = {
-  "#000000", "#cd0000", "#00cd00", "#cdcd00", "#0000ee", "#cd00cd", "#00cdcd", "#e5e5e5",
-  "#7f7f7f", "#ff0000", "#00ff00", "#ffff00", "#5c5cff", "#ff00ff", "#00ffff", "#ffffff",
+  "#000000",
+  "#cd0000",
+  "#00cd00",
+  "#cdcd00",
+  "#0000ee",
+  "#cd00cd",
+  "#00cdcd",
+  "#e5e5e5",
+  "#7f7f7f",
+  "#ff0000",
+  "#00ff00",
+  "#ffff00",
+  "#5c5cff",
+  "#ff00ff",
+  "#00ffff",
+  "#ffffff",
 }
 
 ---@param n integer 0..255
@@ -185,8 +204,14 @@ local function color256(n)
     return ("#%02x%02x%02x"):format(v, v, v)
   end
   n = n - 16
-  local function level(c) return c == 0 and 0 or 55 + c * 40 end
-  return ("#%02x%02x%02x"):format(level(math.floor(n / 36)), level(math.floor(n / 6) % 6), level(n % 6))
+  local function level(c)
+    return c == 0 and 0 or 55 + c * 40
+  end
+  return ("#%02x%02x%02x"):format(
+    level(math.floor(n / 36)),
+    level(math.floor(n / 6) % 6),
+    level(n % 6)
+  )
 end
 
 ---Apply one SGR parameter list to the running attributes.
@@ -197,31 +222,54 @@ local function sgr(attr, params)
   while i <= #params do
     local p = params[i]
     if p == 0 then
-      for k in pairs(attr) do attr[k] = nil end
-    elseif p == 1 then attr.bold = true
-    elseif p == 2 then attr.dim = true
-    elseif p == 3 then attr.italic = true
-    elseif p == 4 then attr.underline = true
-    elseif p == 7 then attr.reverse = true
-    elseif p == 9 then attr.strikethrough = true
-    elseif p == 22 then attr.bold, attr.dim = nil, nil
-    elseif p == 23 then attr.italic = nil
-    elseif p == 24 then attr.underline = nil
-    elseif p == 27 then attr.reverse = nil
-    elseif p == 29 then attr.strikethrough = nil
-    elseif p >= 30 and p <= 37 then attr.fg = color256(p - 30)
-    elseif p >= 90 and p <= 97 then attr.fg = color256(p - 90 + 8)
-    elseif p == 39 then attr.fg = nil
-    elseif p >= 40 and p <= 47 then attr.bg = color256(p - 40)
-    elseif p >= 100 and p <= 107 then attr.bg = color256(p - 100 + 8)
-    elseif p == 49 then attr.bg = nil
+      for k in pairs(attr) do
+        attr[k] = nil
+      end
+    elseif p == 1 then
+      attr.bold = true
+    elseif p == 2 then
+      attr.dim = true
+    elseif p == 3 then
+      attr.italic = true
+    elseif p == 4 then
+      attr.underline = true
+    elseif p == 7 then
+      attr.reverse = true
+    elseif p == 9 then
+      attr.strikethrough = true
+    elseif p == 22 then
+      attr.bold, attr.dim = nil, nil
+    elseif p == 23 then
+      attr.italic = nil
+    elseif p == 24 then
+      attr.underline = nil
+    elseif p == 27 then
+      attr.reverse = nil
+    elseif p == 29 then
+      attr.strikethrough = nil
+    elseif p >= 30 and p <= 37 then
+      attr.fg = color256(p - 30)
+    elseif p >= 90 and p <= 97 then
+      attr.fg = color256(p - 90 + 8)
+    elseif p == 39 then
+      attr.fg = nil
+    elseif p >= 40 and p <= 47 then
+      attr.bg = color256(p - 40)
+    elseif p >= 100 and p <= 107 then
+      attr.bg = color256(p - 100 + 8)
+    elseif p == 49 then
+      attr.bg = nil
     elseif p == 38 or p == 48 then
       local key = p == 38 and "fg" or "bg"
       if params[i + 1] == 5 and params[i + 2] then
         attr[key] = color256(params[i + 2] % 256)
         i = i + 2
       elseif params[i + 1] == 2 and params[i + 4] then
-        attr[key] = ("#%02x%02x%02x"):format(params[i + 2] % 256, params[i + 3] % 256, params[i + 4] % 256)
+        attr[key] = ("#%02x%02x%02x"):format(
+          params[i + 2] % 256,
+          params[i + 3] % 256,
+          params[i + 4] % 256
+        )
         i = i + 4
       end
     end
@@ -244,16 +292,26 @@ local function hl_for(attr)
     fg = c and ("#%06x"):format(c) or nil
   end
   local key = table.concat({
-    fg or "", attr.bg or "", attr.bold and "b" or "", attr.italic and "i" or "",
-    attr.underline and "u" or "", attr.reverse and "r" or "", attr.strikethrough and "s" or "",
+    fg or "",
+    attr.bg or "",
+    attr.bold and "b" or "",
+    attr.italic and "i" or "",
+    attr.underline and "u" or "",
+    attr.reverse and "r" or "",
+    attr.strikethrough and "s" or "",
   }, ",")
   if key == ",,,,,," then return "Normal" end
   local name = hl_cache[key]
   if not name then
     name = "SottoccAnsi" .. vim.fn.sha256(key):sub(1, 10)
     vim.api.nvim_set_hl(0, name, {
-      fg = fg, bg = attr.bg, bold = attr.bold, italic = attr.italic,
-      underline = attr.underline, reverse = attr.reverse, strikethrough = attr.strikethrough,
+      fg = fg,
+      bg = attr.bg,
+      bold = attr.bold,
+      italic = attr.italic,
+      underline = attr.underline,
+      reverse = attr.reverse,
+      strikethrough = attr.strikethrough,
     })
     hl_cache[key] = name
   end
@@ -302,7 +360,9 @@ function M.parse(text, padding)
         -- OSC runs to BEL or to ESC \.
         local bel = line:find("\7", esc, true)
         local st = line:find("\27\\", esc + 1, true)
-        local stop = (bel and st and math.min(bel + 1, st + 2)) or (bel and bel + 1) or (st and st + 2)
+        local stop = (bel and st and math.min(bel + 1, st + 2))
+          or (bel and bel + 1)
+          or (st and st + 2)
         if not stop then break end
         pos = stop
       else

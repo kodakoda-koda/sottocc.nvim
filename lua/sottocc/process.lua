@@ -10,24 +10,32 @@ Process.__index = Process
 
 local FIXED_ARGS = {
   "-p",
-  "--input-format", "stream-json",
-  "--output-format", "stream-json",
+  "--input-format",
+  "stream-json",
+  "--output-format",
+  "stream-json",
   "--include-partial-messages",
   "--verbose",
-  "--permission-prompt-tool", "stdio",
+  "--permission-prompt-tool",
+  "stdio",
   -- Echoes each prompt back with the uuid of its transcript record, which is
   -- what snapshots are filed under.
   "--replay-user-messages",
 }
 
----@param opts { cwd: string, resume: string?, session_id: string?, on_message: fun(msg: table), on_exit: fun(code: integer, deliberate: boolean) }
+---@class sottocc.ProcessOpts
+---@field cwd string
+---@field resume string?
+---@field session_id string?
+---@field on_message fun(msg: table)
+---@field on_exit fun(code: integer, deliberate: boolean)
+
+---@param opts sottocc.ProcessOpts
 ---@return table?
 function Process.start(opts)
   local o = Config.options
   local args = vim.list_extend(vim.deepcopy(FIXED_ARGS), o.extra_args or {})
-  if o.permission_mode then
-    vim.list_extend(args, { "--permission-mode", o.permission_mode })
-  end
+  if o.permission_mode then vim.list_extend(args, { "--permission-mode", o.permission_mode }) end
   if opts.resume then
     vim.list_extend(args, { "--resume", opts.resume })
   elseif opts.session_id then
@@ -46,7 +54,9 @@ function Process.start(opts)
   local ok, handle = pcall(vim.system, vim.list_extend({ o.cmd }, args), {
     cwd = opts.cwd,
     stdin = true,
-    stdout = function(err, data) self:_on_stdout(err, data) end,
+    stdout = function(err, data)
+      self:_on_stdout(err, data)
+    end,
     stderr = function(_, data)
       if data and data ~= "" then
         vim.schedule(function()
@@ -57,7 +67,9 @@ function Process.start(opts)
   }, function(res)
     self.alive = false
     local deliberate = self.stopping
-    vim.schedule(function() opts.on_exit(res.code, deliberate) end)
+    vim.schedule(function()
+      opts.on_exit(res.code, deliberate)
+    end)
   end)
 
   if not ok then
@@ -88,9 +100,7 @@ function Process:_on_stdout(err, data)
     self._buf = self._buf:sub(nl + 1)
     if line ~= "" then
       local decoded, msg = pcall(vim.json.decode, line)
-      if decoded then
-        vim.schedule(function() self.on_message(msg) end)
-      end
+      if decoded then vim.schedule_wrap(self.on_message)(msg) end
     end
   end
 end
@@ -148,7 +158,9 @@ function Process:stop()
   if self.handle then
     self.stopping = true
     self.alive = false
-    pcall(function() self.handle:kill("sigterm") end)
+    pcall(function()
+      self.handle:kill("sigterm")
+    end)
   end
 end
 

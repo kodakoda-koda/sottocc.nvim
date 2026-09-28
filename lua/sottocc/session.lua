@@ -53,7 +53,10 @@ local function scan(path)
         local text = type(c) == "string" and c or nil
         if type(c) == "table" then
           for _, b in ipairs(c) do
-            if b.type == "text" then text = b.text break end
+            if b.type == "text" then
+              text = b.text
+              break
+            end
           end
         end
         -- Synthetic wrappers such as <local-command-caveat> are not prompts.
@@ -87,7 +90,9 @@ function M.list(cwd)
       end
     end
   end
-  table.sort(out, function(a, b) return a.mtime > b.mtime end)
+  table.sort(out, function(a, b)
+    return a.mtime > b.mtime
+  end)
   return out
 end
 
@@ -122,9 +127,7 @@ function M.replay(id, cwd)
     local msg = ok and type(rec) == "table" and rec.message or nil
     if msg then
       local content = msg.content
-      if type(content) == "string" then
-        content = { { type = "text", text = content } }
-      end
+      if type(content) == "string" then content = { { type = "text", text = content } } end
       for _, b in ipairs(type(content) == "table" and content or {}) do
         if rec.type == "user" and b.type == "text" then
           -- Synthetic wrappers are protocol noise, not something the user said.
@@ -139,7 +142,9 @@ function M.replay(id, cwd)
           local c = b.content
           if type(c) == "table" then
             local parts = {}
-            for _, x in ipairs(c) do table.insert(parts, x.text or "") end
+            for _, x in ipairs(c) do
+              table.insert(parts, x.text or "")
+            end
             c = table.concat(parts, "\n")
           end
           table.insert(events, { kind = "tool_result", id = b.tool_use_id, text = c or "" })
@@ -154,7 +159,6 @@ function M.replay(id, cwd)
   fd:close()
   return events
 end
-
 
 ---Pull out one line of the text a user record carries.
 ---@param rec table

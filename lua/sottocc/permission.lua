@@ -106,9 +106,7 @@ end
 ---Take the prompt down and put the cursor back where it was.
 local function restore()
   close_floats()
-  if focus and vim.api.nvim_win_is_valid(focus) then
-    pcall(vim.api.nvim_set_current_win, focus)
-  end
+  if focus and vim.api.nvim_win_is_valid(focus) then pcall(vim.api.nvim_set_current_win, focus) end
   focus = nil
 end
 
@@ -124,9 +122,7 @@ end
 ---@return sottocc.Diff
 local function file_diff(tool_name, input)
   local before = {}
-  if vim.fn.filereadable(input.file_path) == 1 then
-    before = vim.fn.readfile(input.file_path)
-  end
+  if vim.fn.filereadable(input.file_path) == 1 then before = vim.fn.readfile(input.file_path) end
   local after = vim.deepcopy(before)
   if tool_name == "Write" then
     after = vim.split(input.content or "", "\n", { plain = true })
@@ -135,7 +131,8 @@ local function file_diff(tool_name, input)
     -- replace_all rewrites every occurrence; without it the tool refuses an
     -- ambiguous match, so the first one is the only one.
     local count = not input.replace_all and 1 or nil
-    joined = joined:gsub(vim.pesc(input.old_string), (input.new_string or ""):gsub("%%", "%%%%"), count)
+    joined =
+      joined:gsub(vim.pesc(input.old_string), (input.new_string or ""):gsub("%%", "%%%%"), count)
     after = vim.split(joined, "\n", { plain = true })
   end
   return {
@@ -165,19 +162,23 @@ end
 local function notebook_diff(input)
   local nb = {}
   if vim.fn.filereadable(input.notebook_path) == 1 then
-    local ok, decoded = pcall(vim.json.decode, table.concat(vim.fn.readfile(input.notebook_path), "\n"))
+    local ok, decoded =
+      pcall(vim.json.decode, table.concat(vim.fn.readfile(input.notebook_path), "\n"))
     if ok and type(decoded) == "table" then nb = decoded end
   end
 
   local cell
   for _, c in ipairs(type(nb.cells) == "table" and nb.cells or {}) do
-    if type(c) == "table" and c.id == input.cell_id then cell = c break end
+    if type(c) == "table" and c.id == input.cell_id then
+      cell = c
+      break
+    end
   end
 
   local meta = type(nb.metadata) == "table" and nb.metadata or {}
   local lang = (type(meta.kernelspec) == "table" and meta.kernelspec.language)
-      or (type(meta.language_info) == "table" and meta.language_info.name)
-      or ""
+    or (type(meta.language_info) == "table" and meta.language_info.name)
+    or ""
 
   local mode = input.edit_mode or "replace"
   local new = vim.split(input.new_source or "", "\n", { plain = true })
@@ -258,10 +259,18 @@ function show(slot)
   ---@param buf integer
   local function bind_keys(buf)
     local opts = { buffer = buf, nowait = true }
-    vim.keymap.set("n", "y", function() answer("allow") end, opts)
-    vim.keymap.set("n", "n", function() answer("deny") end, opts)
-    vim.keymap.set("n", "q", function() answer("deny") end, opts)
-    vim.keymap.set("n", "<Esc>", function() answer("deny") end, opts)
+    vim.keymap.set("n", "y", function()
+      answer("allow")
+    end, opts)
+    vim.keymap.set("n", "n", function()
+      answer("deny")
+    end, opts)
+    vim.keymap.set("n", "q", function()
+      answer("deny")
+    end, opts)
+    vim.keymap.set("n", "<Esc>", function()
+      answer("deny")
+    end, opts)
   end
 
   local waiting = #queue > 0 and ("   (+%d waiting)"):format(#queue) or ""
@@ -280,15 +289,22 @@ function show(slot)
     local after_buf = scratch(diff.after, diff.ft)
 
     local half = math.floor((rect.width - 1) / 2)
-    local left = open_float(before_buf,
+    local left = open_float(
+      before_buf,
       { row = rect.row, col = rect.col, width = half, height = rect.height },
-      ("  %s  (before)"):format(diff.title))
-    local right = open_float(after_buf,
-      { row = rect.row, col = rect.col + half + 1, width = rect.width - half - 1, height = rect.height },
-      hint)
+      ("  %s  (before)"):format(diff.title)
+    )
+    local right = open_float(after_buf, {
+      row = rect.row,
+      col = rect.col + half + 1,
+      width = rect.width - half - 1,
+      height = rect.height,
+    }, hint)
 
     for _, win in ipairs({ left, right }) do
-      vim.api.nvim_win_call(win, function() vim.cmd("diffthis") end)
+      vim.api.nvim_win_call(win, function()
+        vim.cmd("diffthis")
+      end)
     end
     bind_keys(before_buf)
     bind_keys(after_buf)

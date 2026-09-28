@@ -52,12 +52,26 @@ local function parent_of(msg)
 end
 
 M.PERMISSION_MODES = {
-  "default", "manual", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk",
+  "default",
+  "manual",
+  "acceptEdits",
+  "plan",
+  "auto",
+  "bypassPermissions",
+  "dontAsk",
 }
 
 local MODELS = {
-  "default", "opus", "sonnet", "haiku", "fable", "best",
-  "opus[1m]", "sonnet[1m]", "fable[1m]", "opusplan",
+  "default",
+  "opus",
+  "sonnet",
+  "haiku",
+  "fable",
+  "best",
+  "opus[1m]",
+  "sonnet[1m]",
+  "fable[1m]",
+  "opusplan",
 }
 
 --------------------------------------------------------------------- events
@@ -90,18 +104,15 @@ local function handle(msg)
     M.session_id = msg.session_id
     Winbar.state.mode = msg.permissionMode or Winbar.state.mode
     Winbar.paint()
-
   elseif t == "system" and msg.subtype == "status" then
     -- Most status events carry a plain string; keep any other shape out of
     -- the bar rather than letting it blow up the renderer.
     Winbar.state.status = type(msg.status) == "string" and msg.status or nil
     Winbar.paint()
-
   elseif t == "system" and msg.subtype == "task_started" then
     if msg.is_backgrounded and type(msg.tool_use_id) == "string" then
       M.background[msg.tool_use_id] = true
     end
-
   elseif t == "system" and msg.subtype == "task_notification" then
     local id = msg.tool_use_id
     if type(id) == "string" and M.background[id] then
@@ -109,10 +120,8 @@ local function handle(msg)
       local status = type(msg.status) == "string" and msg.status or "completed"
       Render.agent_done(id, background_report(msg), status ~= "completed" and status or nil)
     end
-
   elseif t == "system" and msg.subtype == "compact_boundary" then
     Render.notice("── compacted ──")
-
   elseif t == "stream_event" then
     local e = msg.event or {}
     local cb = e.content_block
@@ -120,14 +129,17 @@ local function handle(msg)
       M.tools[cb.id] = cb.name
       Render.tool_start(cb.id, cb.name)
     end
-
   elseif t == "assistant" then
     -- A message from a delegated subagent carries the id of the Agent call
     -- that spawned it. Its steps belong under that call, not beside it.
     local parent = parent_of(msg)
     for _, b in ipairs((msg.message or {}).content or {}) do
       if b.type == "text" and b.text ~= "" then
-        if parent then Render.nested_text(parent, b.text) else Render.agent_text(b.text) end
+        if parent then
+          Render.nested_text(parent, b.text)
+        else
+          Render.agent_text(b.text)
+        end
       elseif b.type == "tool_use" then
         M.tools[b.id] = b.name
         local input = type(b.input) == "table" and b.input or {}
@@ -140,13 +152,11 @@ local function handle(msg)
         end
       end
     end
-
   elseif t == "user" and msg.isReplay then
     -- Our own prompt, echoed back by --replay-user-messages. It is already
     -- on screen; what it adds is the uuid of its transcript record.
     if type(msg.uuid) == "string" then M.prompt_uuid = msg.uuid end
     if type(msg.session_id) == "string" then M.session_id = msg.session_id end
-
   elseif t == "user" then
     local parent = parent_of(msg)
     for _, b in ipairs((msg.message or {}).content or {}) do
@@ -154,7 +164,9 @@ local function handle(msg)
         local content = b.content
         if type(content) == "table" then
           local parts = {}
-          for _, c in ipairs(content) do table.insert(parts, c.text or "") end
+          for _, c in ipairs(content) do
+            table.insert(parts, c.text or "")
+          end
           content = table.concat(parts, "\n")
         end
         content = content or ""
@@ -172,7 +184,6 @@ local function handle(msg)
         end
       end
     end
-
   elseif t == "control_request" then
     local req = msg.request or {}
     if req.subtype == "can_use_tool" then
@@ -193,13 +204,13 @@ local function handle(msg)
           type = "control_response",
           response = { subtype = "success", request_id = msg.request_id, response = body },
         })
-        Render.notice(("%s %s"):format(behavior == "allow" and "allowed" or "denied", req.tool_name))
+        Render.notice(
+          ("%s %s"):format(behavior == "allow" and "allowed" or "denied", req.tool_name)
+        )
       end)
     end
-
   elseif t == "control_response" then
     if M.proc then M.proc:resolve_control(msg) end
-
   elseif t == "result" then
     Winbar.state.status = nil
     Winbar.paint()
@@ -250,8 +261,13 @@ function M.start(resume, session_id)
     on_message = function(msg)
       local ok, err = pcall(handle, msg)
       if not ok then
-        Render.error(("render failed on %s/%s: %s")
-          :format(tostring(msg.type), tostring(msg.subtype), tostring(err)))
+        Render.error(
+          ("render failed on %s/%s: %s"):format(
+            tostring(msg.type),
+            tostring(msg.subtype),
+            tostring(err)
+          )
+        )
       end
     end,
     on_exit = function(code, deliberate)
@@ -277,7 +293,11 @@ function M.open()
 end
 
 function M.toggle()
-  if Window.is_open() then Window.close() else M.open() end
+  if Window.is_open() then
+    Window.close()
+  else
+    M.open()
+  end
 end
 
 function M.submit()
@@ -323,7 +343,11 @@ end
 local function resume_into(id, label, empty)
   M.stop()
   Render.reset()
-  if empty then M.start(nil, id) else M.start(id) end
+  if empty then
+    M.start(nil, id)
+  else
+    M.start(id)
+  end
   Render.notice(("resumed %s"):format(label or id:sub(1, 8)))
   for _, e in ipairs(empty and {} or Session.replay(id, vim.fn.getcwd())) do
     if e.kind == "user" then
@@ -423,15 +447,22 @@ function M.rewind(_, args)
       title = "rewind: " .. entry.text,
       items = { "restore conversation", "restore conversation and code", "nevermind" },
       on_choice = function(i)
-        if i == 1 then do_rewind(entry, false)
-        elseif i == 2 then do_rewind(entry, true) end
+        if i == 1 then
+          do_rewind(entry, false)
+        elseif i == 2 then
+          do_rewind(entry, true)
+        end
       end,
     })
   end
 
   if args and args ~= "" then
     local n = tonumber(args)
-    if n and turns[n] then choose(turns[n]) else Render.error("no such turn: " .. args) end
+    if n and turns[n] then
+      choose(turns[n])
+    else
+      Render.error("no such turn: " .. args)
+    end
     return
   end
 
@@ -442,7 +473,9 @@ function M.rewind(_, args)
   Picker.open({
     title = "rewind to the point before",
     items = items,
-    on_choice = function(i) choose(turns[i]) end,
+    on_choice = function(i)
+      choose(turns[i])
+    end,
   })
 end
 
@@ -486,7 +519,10 @@ function M.cycle_mode()
   if #ring == 0 then return end
   local at = 0
   for i, m in ipairs(ring) do
-    if m == Winbar.state.mode then at = i break end
+    if m == Winbar.state.mode then
+      at = i
+      break
+    end
   end
   M.permission_mode(ring[at % #ring + 1])
 end
@@ -515,8 +551,12 @@ local function buffer_keymaps()
           local w = Window.win_for(Window.output_buf)
           if w then vim.api.nvim_set_current_win(w) end
         end, { buffer = ev.buf })
-        vim.keymap.set({ "n", "i" }, k.cycle_mode, M.cycle_mode,
-          { buffer = ev.buf, desc = "sottocc cycle permission mode" })
+        vim.keymap.set(
+          { "n", "i" },
+          k.cycle_mode,
+          M.cycle_mode,
+          { buffer = ev.buf, desc = "sottocc cycle permission mode" }
+        )
       elseif ev.buf == Window.output_buf then
         vim.keymap.set("n", k.goto_prompt, function()
           local w = Window.win_for(Window.prompt_buf)
@@ -524,8 +564,12 @@ local function buffer_keymaps()
         end, { buffer = ev.buf })
         vim.keymap.set("n", k.interrupt, M.interrupt, { buffer = ev.buf })
         vim.keymap.set("n", k.cycle_mode, M.cycle_mode, { buffer = ev.buf })
-        vim.keymap.set("n", k.open_file, Context.open_at_cursor,
-          { buffer = ev.buf, desc = "sottocc open the file on this line" })
+        vim.keymap.set(
+          "n",
+          k.open_file,
+          Context.open_at_cursor,
+          { buffer = ev.buf, desc = "sottocc open the file on this line" }
+        )
       end
     end,
   })

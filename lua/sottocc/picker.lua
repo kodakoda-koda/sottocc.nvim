@@ -30,7 +30,11 @@ function M.open(opts)
     vim.ui.select(items, { prompt = opts.title }, function(_, idx)
       -- Off the picker's own callback, so a follow-up picker is not opened
       -- while this one is still closing.
-      if idx and opts.on_choice then vim.schedule(function() opts.on_choice(idx) end) end
+      if idx and opts.on_choice then
+        vim.schedule(function()
+          opts.on_choice(idx)
+        end)
+      end
     end)
     return
   end
@@ -41,7 +45,9 @@ function M.open(opts)
   vim.bo[buf].bufhidden = "wipe"
 
   local width = 0
-  for _, s in ipairs(items) do width = math.max(width, vim.fn.strdisplaywidth(s)) end
+  for _, s in ipairs(items) do
+    width = math.max(width, vim.fn.strdisplaywidth(s))
+  end
   width = math.min(math.max(width + 2, 30), vim.o.columns - 8)
   local height = math.min(#items, math.floor(vim.o.lines * 0.5))
 
@@ -67,7 +73,9 @@ function M.open(opts)
     if opts.on_choice then opts.on_choice(idx) end
   end
 
-  local map = function(lhs, fn) vim.keymap.set("n", lhs, fn, { buffer = buf, nowait = true }) end
+  local map = function(lhs, fn)
+    vim.keymap.set("n", lhs, fn, { buffer = buf, nowait = true })
+  end
   map("<CR>", choose)
   map("q", close)
   map("<Esc>", close)

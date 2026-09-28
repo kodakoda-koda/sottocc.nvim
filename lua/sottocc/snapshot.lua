@@ -93,9 +93,7 @@ function M.restore_from(uuids)
   local restored = {}
   for path, snap in pairs(M.files_from(uuids)) do
     local ok, lines = pcall(vim.fn.readfile, snap, "b")
-    if ok and pcall(vim.fn.writefile, lines, path, "b") then
-      table.insert(restored, path)
-    end
+    if ok and pcall(vim.fn.writefile, lines, path, "b") then table.insert(restored, path) end
   end
   table.sort(restored)
   return restored
@@ -112,7 +110,9 @@ function M.prune(days)
   for _, session in ipairs(sessions()) do
     local dir = M.root .. "/" .. session
     local newest = vim.fn.getftime(dir)
-    for _, t in ipairs(vim.fn.glob(("%s/*/%s.jsonl"):format(Claude.projects_dir(), session), false, true)) do
+    for _, t in
+      ipairs(vim.fn.glob(("%s/*/%s.jsonl"):format(Claude.projects_dir(), session), false, true))
+    do
       newest = math.max(newest, vim.fn.getftime(t))
     end
     if newest < cutoff then pcall(vim.fn.delete, dir, "rf") end

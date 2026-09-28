@@ -57,7 +57,9 @@ local function usage_rows()
       if type(r[1]) == "table" and type(r[1][1]) == "table" then return r end
       return { r }
     end
-    return { { { ok and "statusline: not a table" or ("statusline: " .. tostring(r)), "ErrorMsg" } } }
+    return {
+      { { ok and "statusline: not a table" or ("statusline: " .. tostring(r)), "ErrorMsg" } },
+    }
   end
   -- Nothing until the command prints, and nothing at all without one.
   local rows = vim.deepcopy(Statusline.rows() or {})

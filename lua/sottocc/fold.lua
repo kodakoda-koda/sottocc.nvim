@@ -48,9 +48,7 @@ end
 function M.text()
   local first = vim.fn.getline(vim.v.foldstart)
   local hidden = vim.v.foldend - vim.v.foldstart
-  if hidden > 0 then
-    return ("%s  (+%d lines)"):format(first, hidden)
-  end
+  if hidden > 0 then return ("%s  (+%d lines)"):format(first, hidden) end
   return first
 end
 

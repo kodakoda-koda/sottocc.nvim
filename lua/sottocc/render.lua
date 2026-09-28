@@ -43,9 +43,7 @@ local function append(lines, hl, spans)
   Window.with_output(function(buf)
     local count = vim.api.nvim_buf_line_count(buf)
     -- An untouched scratch buffer still reports one empty line.
-    if count == 1 and vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "" then
-      count = 0
-    end
+    if count == 1 and vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "" then count = 0 end
     start_row = count
     vim.api.nvim_buf_set_lines(buf, count, -1, false, lines)
     if hl then
@@ -55,7 +53,7 @@ local function append(lines, hl, spans)
     end
     for _, sp in ipairs(spans or {}) do
       local opts = sp.line_hl and { line_hl_group = sp.line_hl }
-          or { end_col = sp.end_col, hl_group = sp.hl }
+        or { end_col = sp.end_col, hl_group = sp.hl }
       pcall(vim.api.nvim_buf_set_extmark, buf, NS, count + sp.row, sp.col or 0, opts)
     end
   end)
@@ -112,9 +110,7 @@ local function replace_line(key, text, hl)
     vim.api.nvim_buf_set_text(buf, row, 0, row, #old, { text })
     -- The anchor may have moved with the text; pin it back to column 0.
     M.blocks[key] = vim.api.nvim_buf_set_extmark(buf, NS, row, 0, {})
-    if hl then
-      vim.api.nvim_buf_set_extmark(buf, NS, row, 0, { line_hl_group = hl })
-    end
+    if hl then vim.api.nvim_buf_set_extmark(buf, NS, row, 0, { line_hl_group = hl }) end
   end)
 end
 
@@ -178,7 +174,9 @@ end
 ---@return string[]
 local function draw_table(head, aligns, body)
   local ncol = #head
-  for _, r in ipairs(body) do ncol = math.max(ncol, #r) end
+  for _, r in ipairs(body) do
+    ncol = math.max(ncol, #r)
+  end
 
   local w = {}
   local function measure(r)
@@ -188,11 +186,15 @@ local function draw_table(head, aligns, body)
     end
   end
   measure(head)
-  for _, r in ipairs(body) do measure(r) end
+  for _, r in ipairs(body) do
+    measure(r)
+  end
 
   local function rule(left, mid, right)
     local parts = {}
-    for i = 1, ncol do table.insert(parts, ("─"):rep(w[i] + 2)) end
+    for i = 1, ncol do
+      table.insert(parts, ("─"):rep(w[i] + 2))
+    end
     return left .. table.concat(parts, mid) .. right
   end
   local function row(cells)
@@ -204,7 +206,9 @@ local function draw_table(head, aligns, body)
   end
 
   local out = { rule("┌", "┬", "┐"), row(head), rule("├", "┼", "┤") }
-  for _, r in ipairs(body) do table.insert(out, row(r)) end
+  for _, r in ipairs(body) do
+    table.insert(out, row(r))
+  end
   table.insert(out, rule("└", "┴", "┘"))
   return out
 end
@@ -278,9 +282,7 @@ end
 ---@return string?
 local function describe(input)
   local path = input.file_path or input.path
-  if type(path) == "string" and path ~= "" then
-    return vim.fn.fnamemodify(path, ":.")
-  end
+  if type(path) == "string" and path ~= "" then return vim.fn.fnamemodify(path, ":.") end
   local v = input.command or input.pattern or input.query or input.description
   return v and tostring(v) or nil
 end
@@ -329,7 +331,7 @@ function M.tool_confirm(id, name, input)
   M.targets[id] = target(input)
   local summary = describe(input)
   local text = summary and ("%s %s(%s)"):format(GLYPH.agent, name, one_line(summary))
-      or ("%s %s"):format(GLYPH.agent, name)
+    or ("%s %s"):format(GLYPH.agent, name)
   if M.blocks["tool:" .. id] then
     replace_line("tool:" .. id, text)
   else
@@ -348,9 +350,7 @@ function M.tool_result(id, content, is_error)
   for i = 1, math.min(#raw, max) do
     table.insert(lines, (i == 1 and GLYPH.result or "     ") .. raw[i])
   end
-  if #raw > max then
-    table.insert(lines, ("     … +%d lines"):format(#raw - max))
-  end
+  if #raw > max then table.insert(lines, ("     … +%d lines"):format(#raw - max)) end
   if #lines == 0 then lines = { GLYPH.result .. "(no output)" } end
 
   local hl = is_error and "SottoccError" or "SottoccResult"
@@ -411,7 +411,7 @@ end
 function M.nested_tool(parent, name, input)
   local summary = describe(input)
   local text = summary and ("%s %s(%s)"):format(GLYPH.agent, name, one_line(summary))
-      or ("%s %s"):format(GLYPH.agent, name)
+    or ("%s %s"):format(GLYPH.agent, name)
   insert_after("end:" .. parent, { NEST .. one_line(text) })
 end
 
@@ -434,9 +434,7 @@ function M.nested_result(parent, content)
   for i = 1, math.min(#raw, max) do
     table.insert(lines, NEST .. (i == 1 and "⎿  " or "   ") .. raw[i])
   end
-  if #raw > max then
-    table.insert(lines, NEST .. ("   … +%d lines"):format(#raw - max))
-  end
+  if #raw > max then table.insert(lines, NEST .. ("   … +%d lines"):format(#raw - max)) end
   if #lines == 0 then lines = { NEST .. "⎿  (no output)" } end
   insert_after("end:" .. parent, lines)
 end
@@ -460,9 +458,7 @@ function M.agent_done(id, content, status)
   local ms = content:match("duration_ms:%s*(%d+)")
 
   local bits = {}
-  if uses then
-    table.insert(bits, ("%s tool use%s"):format(uses, uses == "1" and "" or "s"))
-  end
+  if uses then table.insert(bits, ("%s tool use%s"):format(uses, uses == "1" and "" or "s")) end
   if tokens then table.insert(bits, fmt_tokens(tonumber(tokens))) end
   if ms then table.insert(bits, ("%.1fs"):format(tonumber(ms) / 1000)) end
   local word = status and (status:sub(1, 1):upper() .. status:sub(2)) or "Done"

@@ -9,9 +9,7 @@ local M = {}
 ---@return string
 function M.config_dir()
   local dir = vim.env.CLAUDE_CONFIG_DIR
-  if dir and dir ~= "" then
-    return vim.fs.normalize(dir)
-  end
+  if dir and dir ~= "" then return vim.fs.normalize(dir) end
   return vim.fs.normalize("~/.claude")
 end
 
@@ -63,9 +61,17 @@ function M.uuid()
   bytes[7] = bit.bor(bit.band(bytes[7], 0x0f), 0x40)
   bytes[9] = bit.bor(bit.band(bytes[9], 0x3f), 0x80)
   local hex = {}
-  for i, b in ipairs(bytes) do hex[i] = ("%02x"):format(b) end
+  for i, b in ipairs(bytes) do
+    hex[i] = ("%02x"):format(b)
+  end
   local s = table.concat(hex)
-  return ("%s-%s-%s-%s-%s"):format(s:sub(1, 8), s:sub(9, 12), s:sub(13, 16), s:sub(17, 20), s:sub(21, 32))
+  return ("%s-%s-%s-%s-%s"):format(
+    s:sub(1, 8),
+    s:sub(9, 12),
+    s:sub(13, 16),
+    s:sub(17, 20),
+    s:sub(21, 32)
+  )
 end
 
 return M

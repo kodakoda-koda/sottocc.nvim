@@ -45,7 +45,9 @@ local ADAPTERS = {
     if not ok then return end
     for _, w in ipairs(windows_of("oil")) do
       if not vim.bo[w.buf].modified then
-        pcall(vim.api.nvim_win_call, w.win, function() actions.refresh.callback() end)
+        pcall(vim.api.nvim_win_call, w.win, function()
+          actions.refresh.callback()
+        end)
       end
     end
   end,

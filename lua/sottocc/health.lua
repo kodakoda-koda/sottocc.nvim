@@ -6,7 +6,9 @@ local M = {}
 ---@param args string[]
 ---@return string?, string?
 local function run(args)
-  local ok, res = pcall(function() return vim.system(args, { text = true }):wait(10000) end)
+  local ok, res = pcall(function()
+    return vim.system(args, { text = true }):wait(10000)
+  end)
   if not ok then return nil, tostring(res) end
   if res.code ~= 0 and (res.stdout or "") == "" then
     return nil, vim.trim(res.stderr or "") ~= "" and vim.trim(res.stderr) or ("exit " .. res.code)
@@ -28,11 +30,18 @@ function M.check()
   h.start("Claude Code CLI")
   local exe = Config.options.cmd
   if vim.fn.executable(exe) == 0 then
-    h.error(("`%s` is not executable"):format(exe), { "Install Claude Code, or set `cmd` to its path" })
+    h.error(
+      ("`%s` is not executable"):format(exe),
+      { "Install Claude Code, or set `cmd` to its path" }
+    )
     return
   end
   local version, err = run({ exe, "--version" })
-  if version then h.ok(vim.trim(version)) else h.error("--version failed: " .. err) end
+  if version then
+    h.ok(vim.trim(version))
+  else
+    h.error("--version failed: " .. err)
+  end
 
   -- The email is left out: a health report is often pasted into issues.
   local out, aerr = run({ exe, "auth", "status", "--json" })
@@ -40,10 +49,11 @@ function M.check()
   if not (ok and type(status) == "table") then
     h.warn("could not read `auth status`: " .. tostring(aerr or out))
   elseif status.loggedIn then
-    local how = { status.authMethod, status.subscriptionType }
-    h.ok(("logged in (%s)"):format(table.concat(vim.tbl_filter(function(v)
-      return type(v) == "string"
-    end, how), ", ")))
+    local how = {}
+    for _, v in ipairs({ status.authMethod, status.subscriptionType }) do
+      if type(v) == "string" then table.insert(how, v) end
+    end
+    h.ok(("logged in (%s)"):format(table.concat(how, ", ")))
   else
     h.error("not logged in", { ("Run `%s auth login` in a terminal"):format(exe) })
   end

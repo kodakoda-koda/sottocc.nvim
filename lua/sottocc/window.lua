@@ -75,10 +75,10 @@ function M.open()
     return
   end
 
-  M.output_buf = (M.output_buf and vim.api.nvim_buf_is_valid(M.output_buf))
-      and M.output_buf or make_output_buf()
-  M.prompt_buf = (M.prompt_buf and vim.api.nvim_buf_is_valid(M.prompt_buf))
-      and M.prompt_buf or make_prompt_buf()
+  M.output_buf = (M.output_buf and vim.api.nvim_buf_is_valid(M.output_buf)) and M.output_buf
+    or make_output_buf()
+  M.prompt_buf = (M.prompt_buf and vim.api.nvim_buf_is_valid(M.prompt_buf)) and M.prompt_buf
+    or make_prompt_buf()
   -- Claim a fresh column at the far edge; the rest survives untouched.
   vim.cmd(Config.options.position == "left" and "topleft vsplit" or "botright vsplit")
   local out_win = vim.api.nvim_get_current_win()
@@ -109,7 +109,11 @@ function M.close()
 end
 
 function M.toggle()
-  if M.is_open() then M.close() else M.open() end
+  if M.is_open() then
+    M.close()
+  else
+    M.open()
+  end
 end
 
 ---Run `fn` with the output buffer temporarily modifiable.
@@ -120,9 +124,7 @@ function M.with_output(fn)
   vim.bo[buf].modifiable = true
   local ok, err = pcall(fn, buf)
   vim.bo[buf].modifiable = false
-  if not ok then
-    vim.notify("sottocc: render error: " .. tostring(err), vim.log.levels.ERROR)
-  end
+  if not ok then vim.notify("sottocc: render error: " .. tostring(err), vim.log.levels.ERROR) end
 end
 
 ---Keep the tail in view while output streams in.
@@ -139,9 +141,7 @@ function M.follow()
     return
   end
   local cur = vim.api.nvim_win_get_cursor(win)[1]
-  if last - cur <= 3 then
-    pcall(vim.api.nvim_win_set_cursor, win, { last, 0 })
-  end
+  if last - cur <= 3 then pcall(vim.api.nvim_win_set_cursor, win, { last, 0 }) end
 end
 
 -- Repaint after layout changes so the virtual bar rows cannot go missing.
@@ -151,7 +151,9 @@ vim.api.nvim_create_autocmd({ "WinResized", "VimResized", "TabEnter", "BufEnter"
   group = AUGROUP,
   callback = function()
     if not M.prompt_buf then return end
-    vim.schedule(function() require("sottocc.winbar").paint() end)
+    vim.schedule(function()
+      require("sottocc.winbar").paint()
+    end)
   end,
 })
 
@@ -166,7 +168,9 @@ vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
 
 vim.api.nvim_create_autocmd("VimLeavePre", {
   group = AUGROUP,
-  callback = function() require("sottocc").stop() end,
+  callback = function()
+    require("sottocc").stop()
+  end,
 })
 
 return M

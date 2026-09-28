@@ -50,7 +50,9 @@ for _, fixture in ipairs(vim.fn.glob(root .. "/tests/fixtures/*.ndjson", false, 
   vim.env.SOTTOCC_FIXTURE = fixture
   core.clear()
   core.open()
-  vim.wait(5000, function() return core.proc and not core.proc.alive end, 10)
+  vim.wait(5000, function()
+    return core.proc and not core.proc.alive
+  end, 10)
   -- Messages are handed over on the main loop; let the last of them land.
   vim.wait(100)
 
@@ -96,7 +98,13 @@ local Statusline = require("sottocc.statusline")
 eq("display name", "Haiku 4.5", Statusline.display_name("claude-haiku-4-5-20251001"))
 local rows = Statusline.parse("\27[2mdim\27[0m plain\n\nsecond\n", 0)
 eq("parse rows", 3, #rows)
-eq("parse text", "dim plain", table.concat(vim.tbl_map(function(c) return c[1] end, rows[1])))
+eq(
+  "parse text",
+  "dim plain",
+  table.concat(vim.tbl_map(function(c)
+    return c[1]
+  end, rows[1]))
+)
 
 io.stdout:write(failures == 0 and "all passed\n" or ("%d failed\n"):format(failures))
 os.exit(failures == 0 and 0 or 1)

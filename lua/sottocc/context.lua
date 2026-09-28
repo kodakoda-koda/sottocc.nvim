@@ -66,9 +66,10 @@ end
 local function target_win()
   local ours = { [Window.output_buf or -1] = true, [Window.prompt_buf or -1] = true }
   local function usable(win)
-    return win ~= 0 and vim.api.nvim_win_is_valid(win)
-        and vim.api.nvim_win_get_config(win).relative == ""
-        and not ours[vim.api.nvim_win_get_buf(win)]
+    return win ~= 0
+      and vim.api.nvim_win_is_valid(win)
+      and vim.api.nvim_win_get_config(win).relative == ""
+      and not ours[vim.api.nvim_win_get_buf(win)]
   end
   local prev = vim.fn.win_getid(vim.fn.winnr("#"))
   if usable(prev) then return prev end
@@ -76,7 +77,11 @@ local function target_win()
     if usable(win) then return win end
   end
   local side = require("sottocc.config").options.position == "left" and "right" or "left"
-  return vim.api.nvim_open_win(vim.api.nvim_create_buf(true, false), false, { split = side, win = -1 })
+  return vim.api.nvim_open_win(
+    vim.api.nvim_create_buf(true, false),
+    false,
+    { split = side, win = -1 }
+  )
 end
 
 ---Open a file beside the column, at a line or at the first match of a text.
