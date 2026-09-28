@@ -15,6 +15,8 @@ local NS = vim.api.nvim_create_namespace("sottocc.blocks")
 
 -- block key -> { mark_id, kind }
 M.blocks = {}
+-- tool_use_id -> the file the call names, for opening it from the tool line.
+M.targets = {}
 
 local GLYPH = {
   agent = "⏺",
@@ -24,6 +26,7 @@ local GLYPH = {
 
 function M.reset()
   M.blocks = {}
+  M.targets = {}
   Window.with_output(function(buf)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, {})
     vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
@@ -279,6 +282,31 @@ local function describe(input)
   return v and tostring(v) or nil
 end
 
+---Where a tool call points: the file, and the line it read from or the text
+---an edit put there.
+---@param input table
+---@return { path: string, line: integer?, find: string? }?
+local function target(input)
+  local path = input.file_path or input.notebook_path or input.path
+  if type(path) ~= "string" or path == "" then return nil end
+  local new = type(input.new_string) == "string" and input.new_string or nil
+  return {
+    path = vim.fn.fnamemodify(path, ":p"),
+    line = tonumber(input.offset),
+    find = new and vim.split(new, "\n", { plain = true })[1] or nil,
+  }
+end
+
+---The target of the tool call whose line is at `row`.
+---@param row integer 0-indexed
+---@return { path: string, line: integer?, find: string? }?
+function M.target_at(row)
+  for id, t in pairs(M.targets) do
+    if row_of("tool:" .. id) == row then return t end
+  end
+  return nil
+end
+
 ---A tool call whose arguments are not known yet.
 ---@param id string
 ---@param name string
@@ -295,6 +323,7 @@ end
 ---@param name string
 ---@param input table
 function M.tool_confirm(id, name, input)
+  M.targets[id] = target(input)
   local summary = describe(input)
   local text = summary and ("%s %s(%s)"):format(GLYPH.agent, name, one_line(summary))
       or ("%s %s"):format(GLYPH.agent, name)

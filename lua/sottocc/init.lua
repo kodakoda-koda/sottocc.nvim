@@ -11,6 +11,7 @@ local Snapshot = require("sottocc.snapshot")
 local Slash = require("sottocc.slash")
 local Winbar = require("sottocc.winbar")
 local Statusline = require("sottocc.statusline")
+local Context = require("sottocc.context")
 
 local M = {}
 
@@ -489,6 +490,8 @@ local function buffer_keymaps()
         end, { buffer = ev.buf })
         vim.keymap.set("n", k.interrupt, M.interrupt, { buffer = ev.buf })
         vim.keymap.set("n", k.cycle_mode, M.cycle_mode, { buffer = ev.buf })
+        vim.keymap.set("n", k.open_file, Context.open_at_cursor,
+          { buffer = ev.buf, desc = "sottocc open the file on this line" })
       end
     end,
   })
@@ -518,6 +521,9 @@ function M.setup(opts)
   })
   cmd("SottoccInterrupt", M.interrupt, { desc = "Stop the turn in progress" })
   cmd("SottoccStop", M.stop, {})
+  cmd("SottoccAdd", function(a)
+    if a.range > 0 then Context.add(a.line1, a.line2) else Context.add() end
+  end, { range = true, desc = "Mention this file, or the selected lines, in the prompt" })
 end
 
 return M

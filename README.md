@@ -37,6 +37,7 @@ over stdin and stdout, and draws the conversation itself.
     { "<leader>ss", "<cmd>Sottocc<cr>",       desc = "Toggle sottocc" },
     { "<leader>sr", "<cmd>SottoccResume<cr>", desc = "Resume a session" },
     { "<leader>sw", "<cmd>SottoccRewind<cr>", desc = "Rewind" },
+    { "<leader>sa", ":SottoccAdd<cr>", mode = { "n", "x" }, desc = "Mention in sottocc" },
   },
 }
 ```
@@ -55,6 +56,16 @@ Inside the prompt buffer:
 Insert mode `<CR>` inserts a newline, as it should. `<C-c>` is bound in both
 buffers; from anywhere else, `:SottoccInterrupt` does the same. The turn ends
 and the session stays open for the next prompt.
+
+## Files
+
+`:SottoccAdd` puts the current file into the prompt as `@path`, and
+`:'<,'>SottoccAdd` the selected lines as `@path#L10-20`. The CLI attaches
+them itself, so Claude reads only those lines.
+
+In the output buffer, `gf` on a tool line opens its file beside the column: a
+`Read` at the line it read from, an `Edit` at the text it wrote. A result line
+that is a path, with or without `:line`, opens that path.
 
 ## Output
 
@@ -159,6 +170,7 @@ opts = {
     goto_output = "go",
     goto_prompt = "gp",
     cycle_mode = "<S-Tab>",
+    open_file = "gf",           -- in the output buffer
   },
 }
 ```

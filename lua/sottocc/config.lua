@@ -44,6 +44,8 @@ M.defaults = {
     goto_output = "go",
     goto_prompt = "gp",
     cycle_mode = "<S-Tab>",
+    -- In the output buffer: open the file a tool line or result line names.
+    open_file = "gf",
   },
 }
 
