@@ -48,7 +48,7 @@ local function parent_of(msg)
   return type(id) == "string" and id or nil
 end
 
-local PERMISSION_MODES = {
+M.PERMISSION_MODES = {
   "default", "manual", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk",
 }
 
@@ -503,27 +503,7 @@ function M.setup(opts)
   Render.setup_highlights()
   Winbar.setup_highlights()
   buffer_keymaps()
-
-  local cmd = vim.api.nvim_create_user_command
-  cmd("Sottocc", M.toggle, { desc = "Toggle sottocc" })
-  cmd("SottoccOpen", M.open, {})
-  cmd("SottoccClose", Window.close, {})
-  cmd("SottoccClear", M.clear, {})
-  cmd("SottoccResume", function(a) M.resume(M, a.args) end, { nargs = "?" })
-  cmd("SottoccRewind", function(a) M.rewind(M, a.args) end, { nargs = "?" })
-  cmd("SottoccModel", function(a) M.model(M, a.args) end, { nargs = "?" })
-  cmd("SottoccMcp", M.mcp, {})
-  cmd("SottoccMode", M.cycle_mode, { desc = "Cycle the permission mode" })
-  cmd("SottoccPermissionMode", function(a) M.permission_mode(a.args) end, {
-    nargs = 1,
-    complete = function() return PERMISSION_MODES end,
-    desc = "Change the session permission mode",
-  })
-  cmd("SottoccInterrupt", M.interrupt, { desc = "Stop the turn in progress" })
-  cmd("SottoccStop", M.stop, {})
-  cmd("SottoccAdd", function(a)
-    if a.range > 0 then Context.add(a.line1, a.line2) else Context.add() end
-  end, { range = true, desc = "Mention this file, or the selected lines, in the prompt" })
+  M.configured = true
 end
 
 return M
