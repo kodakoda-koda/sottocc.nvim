@@ -182,3 +182,7 @@ opts = {
 ## Status
 
 Early. It does what the author uses it for.
+
+## License
+
+MIT
