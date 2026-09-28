@@ -36,6 +36,8 @@ local function setting()
   end
 end
 
+M.setting = setting
+
 ---"claude-haiku-4-5-20251001" -> "Haiku 4.5", "opus[1m]" -> "Opus", the way
 ---the CLI names models. Anything unrecognised passes through untouched.
 ---@param id string?
