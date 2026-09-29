@@ -1,0 +1,8 @@
+0|
+0|⏺ Read(/private/tmp/sotrec/notes.txt)
+1|  ⎿  1	alpha
+1|     2	bravo
+1|     3	charlie
+1|     4	
+0|
+0|⏺ Edit(/private/tmp/sotrec/notes.txt)
