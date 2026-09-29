@@ -1,4 +1,4 @@
--- Permission prompts cover the region LEFT of the sottocc column, and nothing
+-- Permission prompts cover the region beside the sottocc column, and nothing
 -- else. They are floating windows, so whatever splits the user has there are
 -- neither closed nor resized: the prompt sits on top and the layout underneath
 -- comes back untouched.
@@ -37,20 +37,29 @@ local floats = {}
 ---@type integer?
 local focus = nil
 
----The rectangle left of the sottocc column, in editor coordinates.
+---The rectangle beside the sottocc column -- left of it, or right of it when
+---the column sits on the left -- in editor coordinates.
 ---@return { row: integer, col: integer, width: integer, height: integer }?
-local function left_region()
+local function free_region()
   local out = Window.win_for(Window.output_buf)
   if not out then return nil end
+  local out_col = vim.api.nvim_win_get_position(out)[2]
   -- One column of the gap is the vertical separator.
-  local width = vim.api.nvim_win_get_position(out)[2] - 1
+  local col, width
+  if out_col == 0 then
+    col = vim.api.nvim_win_get_width(out) + 1
+    width = vim.o.columns - col
+  else
+    col = 0
+    width = out_col - 1
+  end
   if width < 20 then return nil end
 
   local tabs = #vim.api.nvim_list_tabpages()
   local top = (vim.o.showtabline == 2 or (vim.o.showtabline == 1 and tabs > 1)) and 1 or 0
   local height = vim.o.lines - vim.o.cmdheight - 1 - top
   if height < 5 then return nil end
-  return { row = top, col = 0, width = width, height = height }
+  return { row = top, col = col, width = width, height = height }
 end
 
 ---@param lines string[]
@@ -97,10 +106,104 @@ end
 ---Take the prompt down and put the cursor back where it was.
 local function restore()
   close_floats()
-  if focus and vim.api.nvim_win_is_valid(focus) then
-    pcall(vim.api.nvim_set_current_win, focus)
-  end
+  if focus and vim.api.nvim_win_is_valid(focus) then pcall(vim.api.nvim_set_current_win, focus) end
   focus = nil
+end
+
+---@class sottocc.Diff
+---@field before string[]
+---@field after string[]
+---@field ft string
+---@field title string
+
+---What an Edit or Write would do to the file on disk.
+---@param tool_name string
+---@param input table
+---@return sottocc.Diff
+local function file_diff(tool_name, input)
+  local before = {}
+  if vim.fn.filereadable(input.file_path) == 1 then before = vim.fn.readfile(input.file_path) end
+  local after = vim.deepcopy(before)
+  if tool_name == "Write" then
+    after = vim.split(input.content or "", "\n", { plain = true })
+  elseif input.old_string then
+    local joined = table.concat(before, "\n")
+    -- replace_all rewrites every occurrence; without it the tool refuses an
+    -- ambiguous match, so the first one is the only one.
+    local count = not input.replace_all and 1 or nil
+    joined =
+      joined:gsub(vim.pesc(input.old_string), (input.new_string or ""):gsub("%%", "%%%%"), count)
+    after = vim.split(joined, "\n", { plain = true })
+  end
+  return {
+    before = before,
+    after = after,
+    ft = vim.filetype.match({ filename = input.file_path }) or "",
+    title = vim.fn.fnamemodify(input.file_path, ":."),
+  }
+end
+
+---A cell's source, which nbformat stores either as one string or as a list
+---of lines that keep their own newlines.
+---@param cell table?
+---@return string[]
+local function cell_lines(cell)
+  if type(cell) ~= "table" then return {} end
+  local src = cell.source
+  if type(src) == "table" then src = table.concat(src) end
+  if type(src) ~= "string" or src == "" then return {} end
+  return vim.split(src, "\n", { plain = true })
+end
+
+---The one cell a NotebookEdit touches, before and after. The rest of the
+---notebook is JSON nobody wants to read in a diff.
+---@param input table
+---@return sottocc.Diff
+local function notebook_diff(input)
+  local nb = {}
+  if vim.fn.filereadable(input.notebook_path) == 1 then
+    local ok, decoded =
+      pcall(vim.json.decode, table.concat(vim.fn.readfile(input.notebook_path), "\n"))
+    if ok and type(decoded) == "table" then nb = decoded end
+  end
+
+  local cell
+  for _, c in ipairs(type(nb.cells) == "table" and nb.cells or {}) do
+    if type(c) == "table" and c.id == input.cell_id then
+      cell = c
+      break
+    end
+  end
+
+  local meta = type(nb.metadata) == "table" and nb.metadata or {}
+  local lang = (type(meta.kernelspec) == "table" and meta.kernelspec.language)
+    or (type(meta.language_info) == "table" and meta.language_info.name)
+    or ""
+
+  local mode = input.edit_mode or "replace"
+  local new = vim.split(input.new_source or "", "\n", { plain = true })
+  local before, after, kind, where
+  if mode == "insert" then
+    -- cell_id names the cell the new one goes after.
+    before, after = {}, new
+    kind = input.cell_type or "code"
+    where = input.cell_id and ("new cell after %s"):format(input.cell_id) or "new cell at top"
+  elseif mode == "delete" then
+    before, after = cell_lines(cell), {}
+    kind = cell and cell.cell_type or "code"
+    where = ("cell %s deleted"):format(tostring(input.cell_id))
+  else
+    before, after = cell_lines(cell), new
+    kind = input.cell_type or (cell and cell.cell_type) or "code"
+    where = ("cell %s"):format(tostring(input.cell_id))
+  end
+
+  return {
+    before = before,
+    after = after,
+    ft = kind == "markdown" and "markdown" or (type(lang) == "string" and lang or ""),
+    title = ("%s  %s"):format(vim.fn.fnamemodify(input.notebook_path, ":."), where),
+  }
 end
 
 local show
@@ -128,7 +231,7 @@ end
 ---@param slot { req: sottocc.Request, answered: boolean }
 function show(slot)
   local req = slot.req
-  local rect = left_region()
+  local rect = free_region()
   if not rect then
     -- Nowhere to draw: fall back to a plain confirm rather than silently
     -- doing nothing.
@@ -156,45 +259,52 @@ function show(slot)
   ---@param buf integer
   local function bind_keys(buf)
     local opts = { buffer = buf, nowait = true }
-    vim.keymap.set("n", "y", function() answer("allow") end, opts)
-    vim.keymap.set("n", "n", function() answer("deny") end, opts)
-    vim.keymap.set("n", "q", function() answer("deny") end, opts)
-    vim.keymap.set("n", "<Esc>", function() answer("deny") end, opts)
+    vim.keymap.set("n", "y", function()
+      answer("allow")
+    end, opts)
+    vim.keymap.set("n", "n", function()
+      answer("deny")
+    end, opts)
+    vim.keymap.set("n", "q", function()
+      answer("deny")
+    end, opts)
+    vim.keymap.set("n", "<Esc>", function()
+      answer("deny")
+    end, opts)
   end
 
   local waiting = #queue > 0 and ("   (+%d waiting)"):format(#queue) or ""
   local hint = ("  [y] allow   [n] deny      %s%s"):format(req.tool_name, waiting)
   local input = req.input
 
-  if EDIT_TOOLS[req.tool_name] and input.file_path then
-    local before = {}
-    if vim.fn.filereadable(input.file_path) == 1 then
-      before = vim.fn.readfile(input.file_path)
-    end
-    local after = vim.deepcopy(before)
-    if req.tool_name == "Write" then
-      after = vim.split(input.content or "", "\n", { plain = true })
-    elseif input.old_string then
-      local joined = table.concat(before, "\n")
-      joined = joined:gsub(vim.pesc(input.old_string), (input.new_string or ""):gsub("%%", "%%%%"), 1)
-      after = vim.split(joined, "\n", { plain = true })
-    end
+  local diff
+  if req.tool_name == "NotebookEdit" and input.notebook_path then
+    diff = notebook_diff(input)
+  elseif EDIT_TOOLS[req.tool_name] and input.file_path then
+    diff = file_diff(req.tool_name, input)
+  end
 
-    local ft = vim.filetype.match({ filename = input.file_path }) or ""
-    local before_buf = scratch(before, ft)
-    local after_buf = scratch(after, ft)
+  if diff then
+    local before_buf = scratch(diff.before, diff.ft)
+    local after_buf = scratch(diff.after, diff.ft)
 
     local half = math.floor((rect.width - 1) / 2)
-    local path = vim.fn.fnamemodify(input.file_path, ":.")
-    local left = open_float(before_buf,
+    local left = open_float(
+      before_buf,
       { row = rect.row, col = rect.col, width = half, height = rect.height },
-      ("  %s  (before)"):format(path))
-    local right = open_float(after_buf,
-      { row = rect.row, col = rect.col + half + 1, width = rect.width - half - 1, height = rect.height },
-      hint)
+      ("  %s  (before)"):format(diff.title)
+    )
+    local right = open_float(after_buf, {
+      row = rect.row,
+      col = rect.col + half + 1,
+      width = rect.width - half - 1,
+      height = rect.height,
+    }, hint)
 
     for _, win in ipairs({ left, right }) do
-      vim.api.nvim_win_call(win, function() vim.cmd("diffthis") end)
+      vim.api.nvim_win_call(win, function()
+        vim.cmd("diffthis")
+      end)
     end
     bind_keys(before_buf)
     bind_keys(after_buf)

@@ -1,0 +1,55 @@
+0|
+0|⏺ notes.txt と missing.txt を読み、ls を実行して、結果を表にします。
+0|
+0|⏺ Read(/private/tmp/sotrec/notes.txt)
+1|  ⎿  1	alpha
+1|     2	bravo
+1|     3	charlie
+1|     4	
+0|
+0|⏺ Read(/private/tmp/sotrec/missing.txt)
+1|  ⎿  File does not exist. Note: your current working directory is /private/tmp/sotrec.
+0|
+0|⏺ Bash(ls -la /private/tmp/sotrec)
+1|  ⎿  total 112
+1|     drwxr-xr-x@   6 user  wheel    192  9 28 14:13 .
+1|     drwxrwxrwt  384 root        wheel  12288  9 28 14:13 ..
+1|     -rw-r--r--@   1 user  wheel     12  9 28 14:13 main.lua
+1|     -rw-r--r--@   1 user  wheel     20  9 28 14:13 notes.txt
+1|     -rw-r--r--@   1 user  wheel      0  9 28 14:13 tools.err
+1|     -rw-r--r--@   1 user  wheel  47321  9 28 14:13 tools.raw.ndjson
+0|
+0|⏺ Read(/private/tmp/sotrec/main.lua)
+1|  ⎿  1	print("hi")
+1|     2	
+0|
+0|⏺ ## notes.txt の内容
+0|  
+0|  ┌────────┬─────────┐
+0|  │ 行番号 │ 内容    │
+0|  ├────────┼─────────┤
+0|  │ 1      │ alpha   │
+0|  │ 2      │ bravo   │
+0|  │ 3      │ charlie │
+0|  │ 4      │ (空行)  │
+0|  └────────┴─────────┘
+0|  
+0|  ## missing.txt
+0|  ファイルが存在しません。
+0|  
+0|  ## ディレクトリ内容（ls -la）
+0|  
+0|  ┌──────────────────┬─────────────┬─────────────┐
+0|  │ ファイル         │ サイズ      │ 権限        │
+0|  ├──────────────────┼─────────────┼─────────────┤
+0|  │ main.lua         │ 12 bytes    │ -rw-r--r--@ │
+0|  │ notes.txt        │ 20 bytes    │ -rw-r--r--@ │
+0|  │ tools.err        │ 0 bytes     │ -rw-r--r--@ │
+0|  │ tools.raw.ndjson │ 47321 bytes │ -rw-r--r--@ │
+0|  └──────────────────┴─────────────┴─────────────┘
+0|  
+0|  ## main.lua
+0|  
+0|  ```lua
+0|  print("hi")
+0|  ```

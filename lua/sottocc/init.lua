@@ -1,3 +1,4 @@
+local Claude = require("sottocc.claude")
 local Config = require("sottocc.config")
 local Process = require("sottocc.process")
 local Window = require("sottocc.window")
@@ -9,29 +10,29 @@ local Refresh = require("sottocc.refresh")
 local Snapshot = require("sottocc.snapshot")
 local Slash = require("sottocc.slash")
 local Winbar = require("sottocc.winbar")
+local Statusline = require("sottocc.statusline")
+local Context = require("sottocc.context")
 
 local M = {}
 
 M.proc = nil
 M.cwd = nil
--- Counts prompts in this session; snapshots are filed under it so a rewind
--- knows which copies predate the point being restored.
-M.turn = 0
+-- The transcript uuid of the prompt being answered, as the CLI echoes it
+-- back; snapshots are filed under it so a rewind knows which copies predate
+-- the point being restored.
+M.prompt_uuid = nil
+-- Stale snapshots are pruned once per Neovim, on the first start.
+local pruned = false
 -- tool_use_id -> tool name, so results know whether a refresh is due.
 M.tools = {}
--- Context reading, kept in two halves: how much the last request carried, and
--- how much the model can hold.
-M.ctx_used = nil
-M.ctx_window = nil
+-- tool_use_id -> the file an edit names, handed on with the refresh.
+M.tool_paths = {}
+-- Agent calls running in the background, by tool_use_id. Their tool_result
+-- only says the agent was launched; the report comes in task_notification.
+M.background = {}
 -- Set while an interrupt is in flight, so the abort it causes reads as an
 -- interruption rather than as a failure.
 M.interrupted = false
-
----Recompute the ctx percentage from whichever halves are known.
-local function update_ctx()
-  if not (M.ctx_used and M.ctx_window and M.ctx_window > 0) then return end
-  Winbar.state.ctx = math.min(100, M.ctx_used / M.ctx_window * 100)
-end
 
 ---The delegation tool, whose own steps arrive in this same stream tagged with
 ---its id. It has been called Task and is now called Agent.
@@ -50,49 +51,77 @@ local function parent_of(msg)
   return type(id) == "string" and id or nil
 end
 
-local PERMISSION_MODES = {
-  "default", "manual", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk",
+M.PERMISSION_MODES = {
+  "default",
+  "manual",
+  "acceptEdits",
+  "plan",
+  "auto",
+  "bypassPermissions",
+  "dontAsk",
 }
 
 local MODELS = {
-  "default", "opus", "sonnet", "haiku", "fable", "best",
-  "opus[1m]", "sonnet[1m]", "fable[1m]", "opusplan",
+  "default",
+  "opus",
+  "sonnet",
+  "haiku",
+  "fable",
+  "best",
+  "opus[1m]",
+  "sonnet[1m]",
+  "fable[1m]",
+  "opusplan",
 }
 
 --------------------------------------------------------------------- events
 
+---A background agent's task_notification, in the shape of the tool_result a
+---foreground agent returns, so both close the same way. Only the usage: the
+---summary repeats the agent's last message, already drawn among its steps.
+---@param msg table
+---@return string
+local function background_report(msg)
+  local u = type(msg.usage) == "table" and msg.usage or {}
+  local usage = {}
+  for _, k in ipairs({ "tool_uses", "total_tokens", "duration_ms" }) do
+    if tonumber(u[k]) then
+      table.insert(usage, ("%s: %d"):format(k == "total_tokens" and "subagent_tokens" or k, u[k]))
+    end
+  end
+  return ("<usage>%s</usage>"):format(table.concat(usage, "\n"))
+end
+
 ---@param msg table
 local function handle(msg)
   local t = msg.type
+  Statusline.observe(msg)
 
   if t == "system" and msg.subtype == "init" then
     Slash.available = msg.slash_commands or {}
-    Winbar.state.model = msg.model
     Winbar.state.status = nil
     M.mcp_servers = msg.mcp_servers or {}
     M.session_id = msg.session_id
     Winbar.state.mode = msg.permissionMode or Winbar.state.mode
     Winbar.paint()
-
   elseif t == "system" and msg.subtype == "status" then
     -- Most status events carry a plain string; keep any other shape out of
     -- the bar rather than letting it blow up the renderer.
     Winbar.state.status = type(msg.status) == "string" and msg.status or nil
     Winbar.paint()
-
+  elseif t == "system" and msg.subtype == "task_started" then
+    if msg.is_backgrounded and type(msg.tool_use_id) == "string" then
+      M.background[msg.tool_use_id] = true
+    end
+  elseif t == "system" and msg.subtype == "task_notification" then
+    local id = msg.tool_use_id
+    if type(id) == "string" and M.background[id] then
+      M.background[id] = nil
+      local status = type(msg.status) == "string" and msg.status or "completed"
+      Render.agent_done(id, background_report(msg), status ~= "completed" and status or nil)
+    end
   elseif t == "system" and msg.subtype == "compact_boundary" then
     Render.notice("── compacted ──")
-
-  elseif t == "rate_limit_event" then
-    local w = (msg.rate_limit_info or {}).unifiedWindows or {}
-    for key in pairs({ five_hour = true, seven_day = true }) do
-      local info = w[key]
-      if info then
-        Winbar.state[key] = { pct = (info.utilization or 0) * 100, resets_at = info.resetsAt }
-      end
-    end
-    Winbar.paint()
-
   elseif t == "stream_event" then
     local e = msg.event or {}
     local cb = e.content_block
@@ -100,25 +129,21 @@ local function handle(msg)
       M.tools[cb.id] = cb.name
       Render.tool_start(cb.id, cb.name)
     end
-
   elseif t == "assistant" then
-    -- The context is what this one request carried, not what the session has
-    -- spent: result.modelUsage accumulates across turns and runs past 100%.
-    local u = (msg.message or {}).usage
-    if type(u) == "table" then
-      M.ctx_used = (u.input_tokens or 0) + (u.cache_read_input_tokens or 0)
-          + (u.cache_creation_input_tokens or 0) + (u.output_tokens or 0)
-      update_ctx()
-      Winbar.paint()
-    end
     -- A message from a delegated subagent carries the id of the Agent call
     -- that spawned it. Its steps belong under that call, not beside it.
     local parent = parent_of(msg)
     for _, b in ipairs((msg.message or {}).content or {}) do
       if b.type == "text" and b.text ~= "" then
-        if parent then Render.nested_text(parent, b.text) else Render.agent_text(b.text) end
+        if parent then
+          Render.nested_text(parent, b.text)
+        else
+          Render.agent_text(b.text)
+        end
       elseif b.type == "tool_use" then
         M.tools[b.id] = b.name
+        local input = type(b.input) == "table" and b.input or {}
+        M.tool_paths[b.id] = input.file_path or input.notebook_path
         if parent then
           Render.nested_tool(parent, b.name, b.input or {})
         else
@@ -127,7 +152,11 @@ local function handle(msg)
         end
       end
     end
-
+  elseif t == "user" and msg.isReplay then
+    -- Our own prompt, echoed back by --replay-user-messages. It is already
+    -- on screen; what it adds is the uuid of its transcript record.
+    if type(msg.uuid) == "string" then M.prompt_uuid = msg.uuid end
+    if type(msg.session_id) == "string" then M.session_id = msg.session_id end
   elseif t == "user" then
     local parent = parent_of(msg)
     for _, b in ipairs((msg.message or {}).content or {}) do
@@ -135,7 +164,9 @@ local function handle(msg)
         local content = b.content
         if type(content) == "table" then
           local parts = {}
-          for _, c in ipairs(content) do table.insert(parts, c.text or "") end
+          for _, c in ipairs(content) do
+            table.insert(parts, c.text or "")
+          end
           content = table.concat(parts, "\n")
         end
         content = content or ""
@@ -143,22 +174,24 @@ local function handle(msg)
         if parent then
           Render.nested_result(parent, content)
         elseif is_agent(name) then
-          Render.agent_done(b.tool_use_id, content)
+          -- A background agent has only been launched; it closes later.
+          if not M.background[b.tool_use_id] then Render.agent_done(b.tool_use_id, content) end
         else
           Render.tool_result(b.tool_use_id, content, b.is_error)
         end
-        if Config.options.auto_refresh and name and Refresh.is_edit(name) then
-          Refresh.run()
+        if name and Refresh.touches_files(name) then
+          Refresh.run({ M.tool_paths[b.tool_use_id] })
         end
       end
     end
-
   elseif t == "control_request" then
     local req = msg.request or {}
     if req.subtype == "can_use_tool" then
       local input = req.input or {}
-      if Refresh.is_edit(req.tool_name) and input.file_path then
-        Snapshot.save(M.session_id, M.turn, input.file_path)
+      -- NotebookEdit names its file notebook_path; the others, file_path.
+      local path = input.file_path or input.notebook_path
+      if Refresh.is_edit(req.tool_name) and path then
+        Snapshot.save(M.session_id, M.prompt_uuid, path)
       end
       Permission.ask(req.tool_name, input, function(behavior)
         local body = { behavior = behavior }
@@ -171,23 +204,15 @@ local function handle(msg)
           type = "control_response",
           response = { subtype = "success", request_id = msg.request_id, response = body },
         })
-        Render.notice(("%s %s"):format(behavior == "allow" and "allowed" or "denied", req.tool_name))
+        Render.notice(
+          ("%s %s"):format(behavior == "allow" and "allowed" or "denied", req.tool_name)
+        )
       end)
     end
-
   elseif t == "control_response" then
     if M.proc then M.proc:resolve_control(msg) end
-
   elseif t == "result" then
     Winbar.state.status = nil
-    -- modelUsage is only read for the window size; its token counts are
-    -- session totals, not the size of the current conversation.
-    local usage = msg.modelUsage or {}
-    local main = usage[Winbar.state.model or ""] or select(2, next(usage))
-    if type(main) == "table" and main.contextWindow then
-      M.ctx_window = main.contextWindow
-    end
-    update_ctx()
     Winbar.paint()
 
     local aborted = msg.terminal_reason == "aborted_streaming" or M.interrupted
@@ -202,32 +227,51 @@ end
 
 --------------------------------------------------------------------- process
 
----@param resume string?
-function M.start(resume)
+---@param resume string? an existing session to continue
+---@param session_id string? an id for a new session, used when resume is nil
+function M.start(resume, session_id)
   if M.proc and M.proc.alive then return end
   M.cwd = vim.fn.getcwd()
   M.tools = {}
-  M.turn = 0
-  M.ctx_used, M.ctx_window = nil, nil
+  M.tool_paths = {}
+  M.background = {}
+  -- The CLI names the session only once the first prompt is answered. Until
+  -- then, a resume or a chosen id already says which session it is, and a
+  -- fresh start has none: keeping the previous id would aim a rewind at the
+  -- wrong transcript.
+  M.session_id = resume or session_id
+  M.prompt_uuid = nil
+  if not pruned then
+    pruned = true
+    local days = tonumber(Claude.settings().cleanupPeriodDays) or 30
+    pcall(Snapshot.prune, days)
+  end
   M.interrupted = false
-  Winbar.state.ctx = nil
   -- The CLI stays silent until the first prompt, so nothing would report the
   -- mode before then. Show what we asked for and let system/init correct it.
   Winbar.state.mode = Config.options.permission_mode or "default"
   Winbar.paint()
+  Statusline.start(M.cwd)
   M.proc = Process.start({
     cwd = M.cwd,
     resume = resume,
+    session_id = session_id,
     -- One malformed field must not take the stream down with it: report the
     -- failure and keep reading.
     on_message = function(msg)
       local ok, err = pcall(handle, msg)
       if not ok then
-        Render.error(("render failed on %s/%s: %s")
-          :format(tostring(msg.type), tostring(msg.subtype), tostring(err)))
+        Render.error(
+          ("render failed on %s/%s: %s"):format(
+            tostring(msg.type),
+            tostring(msg.subtype),
+            tostring(err)
+          )
+        )
       end
     end,
     on_exit = function(code, deliberate)
+      Statusline.stop()
       -- 143 is our own SIGTERM from :SottoccStop, /clear and /resume.
       if deliberate or code == 0 then return end
       Render.error(("process exited with code %d"):format(code))
@@ -236,6 +280,7 @@ function M.start(resume)
 end
 
 function M.stop()
+  Statusline.stop()
   if M.proc then M.proc:stop() end
   M.proc = nil
 end
@@ -248,7 +293,11 @@ function M.open()
 end
 
 function M.toggle()
-  if Window.is_open() then Window.close() else M.open() end
+  if Window.is_open() then
+    Window.close()
+  else
+    M.open()
+  end
 end
 
 function M.submit()
@@ -261,7 +310,6 @@ function M.submit()
 
   if not (M.proc and M.proc.alive) then M.start() end
   M.interrupted = false
-  M.turn = M.turn + 1
   Render.user_message(text)
   M.proc:send_user(text)
 end
@@ -273,7 +321,7 @@ function M.interrupt()
   end
   M.interrupted = true
   -- Requests still queued belong to the turn being abandoned; deny them so
-  -- the CLI is not left waiting and the left region comes back.
+  -- the CLI is not left waiting and the region beside the column comes back.
   Permission.reset()
   M.proc:interrupt()
 end
@@ -286,14 +334,22 @@ end
 
 ---Restart the process against an existing transcript and paint that
 ---transcript back into the buffer, since the CLI replays nothing itself.
+---
+---With `empty`, the session has no transcript yet -- a rewind to before the
+---first prompt -- so the id is handed to --session-id rather than --resume.
 ---@param id string
 ---@param label string?
-local function resume_into(id, label)
+---@param empty boolean?
+local function resume_into(id, label, empty)
   M.stop()
   Render.reset()
-  M.start(id)
+  if empty then
+    M.start(nil, id)
+  else
+    M.start(id)
+  end
   Render.notice(("resumed %s"):format(label or id:sub(1, 8)))
-  for _, e in ipairs(Session.replay(id, vim.fn.getcwd())) do
+  for _, e in ipairs(empty and {} or Session.replay(id, vim.fn.getcwd())) do
     if e.kind == "user" then
       Render.user_message(e.text)
     elseif e.kind == "agent" then
@@ -322,7 +378,7 @@ function M.resume(_, args)
     -- Name the directory: a session started from a different one lives in a
     -- different transcript folder, which is the usual reason for an empty list.
     Render.notice(("no resumable sessions under %s"):format(cwd))
-    Render.notice(("  looked in ~/.claude/projects/%s"):format(Session.encode_cwd(cwd)))
+    Render.notice(("  looked in %s"):format(vim.fn.fnamemodify(Session.dir(cwd), ":~")))
     return
   end
   local items = vim.tbl_map(Session.format, entries)
@@ -357,25 +413,33 @@ function M.rewind(_, args)
   end
 
   local function do_rewind(entry, with_code)
+    local restored
     if with_code then
-      local restored = Snapshot.restore_from(id, entry.turn)
+      restored = Snapshot.restore_from(Session.uuids_from(id, cwd, entry.record))
+      if #restored > 0 then Refresh.run(restored) end
+    end
+
+    -- Reported after the resume, which clears the buffer on its way in.
+    local function report()
+      if not restored then return end
       if #restored == 0 then
         Render.notice("no snapshots for this range; code left as it is")
-      else
-        Render.notice(("restored %d file(s)"):format(#restored))
-        for _, path in ipairs(restored) do
-          Render.notice("  " .. vim.fn.fnamemodify(path, ":."))
-        end
-        Refresh.run()
+        return
+      end
+      Render.notice(("restored %d file(s)"):format(#restored))
+      for _, path in ipairs(restored) do
+        Render.notice("  " .. vim.fn.fnamemodify(path, ":."))
       end
     end
 
-    local new_id = Session.fork(id, cwd, entry.record)
+    local new_id, conversation = Session.fork(id, cwd, entry.record)
     if not new_id then
+      report()
       Render.error("could not fork the transcript")
       return
     end
-    resume_into(new_id, ("rewound to: %s"):format(entry.text))
+    resume_into(new_id, ("rewound to: %s"):format(entry.text), not conversation)
+    report()
   end
 
   local function choose(entry)
@@ -383,15 +447,22 @@ function M.rewind(_, args)
       title = "rewind: " .. entry.text,
       items = { "restore conversation", "restore conversation and code", "nevermind" },
       on_choice = function(i)
-        if i == 1 then do_rewind(entry, false)
-        elseif i == 2 then do_rewind(entry, true) end
+        if i == 1 then
+          do_rewind(entry, false)
+        elseif i == 2 then
+          do_rewind(entry, true)
+        end
       end,
     })
   end
 
   if args and args ~= "" then
     local n = tonumber(args)
-    if n and turns[n] then choose(turns[n]) else Render.error("no such turn: " .. args) end
+    if n and turns[n] then
+      choose(turns[n])
+    else
+      Render.error("no such turn: " .. args)
+    end
     return
   end
 
@@ -402,7 +473,9 @@ function M.rewind(_, args)
   Picker.open({
     title = "rewind to the point before",
     items = items,
-    on_choice = function(i) choose(turns[i]) end,
+    on_choice = function(i)
+      choose(turns[i])
+    end,
   })
 end
 
@@ -437,6 +510,7 @@ function M.permission_mode(mode)
   -- next system/init, which overwrites this.
   Winbar.state.mode = mode
   Winbar.paint()
+  Statusline.trigger()
 end
 
 ---Walk the configured ring, exactly as Shift+Tab does in the CLI.
@@ -445,7 +519,10 @@ function M.cycle_mode()
   if #ring == 0 then return end
   local at = 0
   for i, m in ipairs(ring) do
-    if m == Winbar.state.mode then at = i break end
+    if m == Winbar.state.mode then
+      at = i
+      break
+    end
   end
   M.permission_mode(ring[at % #ring + 1])
 end
@@ -474,8 +551,12 @@ local function buffer_keymaps()
           local w = Window.win_for(Window.output_buf)
           if w then vim.api.nvim_set_current_win(w) end
         end, { buffer = ev.buf })
-        vim.keymap.set({ "n", "i" }, k.cycle_mode, M.cycle_mode,
-          { buffer = ev.buf, desc = "sottocc cycle permission mode" })
+        vim.keymap.set(
+          { "n", "i" },
+          k.cycle_mode,
+          M.cycle_mode,
+          { buffer = ev.buf, desc = "sottocc cycle permission mode" }
+        )
       elseif ev.buf == Window.output_buf then
         vim.keymap.set("n", k.goto_prompt, function()
           local w = Window.win_for(Window.prompt_buf)
@@ -483,6 +564,12 @@ local function buffer_keymaps()
         end, { buffer = ev.buf })
         vim.keymap.set("n", k.interrupt, M.interrupt, { buffer = ev.buf })
         vim.keymap.set("n", k.cycle_mode, M.cycle_mode, { buffer = ev.buf })
+        vim.keymap.set(
+          "n",
+          k.open_file,
+          Context.open_at_cursor,
+          { buffer = ev.buf, desc = "sottocc open the file on this line" }
+        )
       end
     end,
   })
@@ -494,24 +581,7 @@ function M.setup(opts)
   Render.setup_highlights()
   Winbar.setup_highlights()
   buffer_keymaps()
-
-  local cmd = vim.api.nvim_create_user_command
-  cmd("Sottocc", M.toggle, { desc = "Toggle sottocc" })
-  cmd("SottoccOpen", M.open, {})
-  cmd("SottoccClose", Window.close, {})
-  cmd("SottoccClear", M.clear, {})
-  cmd("SottoccResume", function(a) M.resume(M, a.args) end, { nargs = "?" })
-  cmd("SottoccRewind", function(a) M.rewind(M, a.args) end, { nargs = "?" })
-  cmd("SottoccModel", function(a) M.model(M, a.args) end, { nargs = "?" })
-  cmd("SottoccMcp", M.mcp, {})
-  cmd("SottoccMode", M.cycle_mode, { desc = "Cycle the permission mode" })
-  cmd("SottoccPermissionMode", function(a) M.permission_mode(a.args) end, {
-    nargs = 1,
-    complete = function() return PERMISSION_MODES end,
-    desc = "Change the session permission mode",
-  })
-  cmd("SottoccInterrupt", M.interrupt, { desc = "Stop the turn in progress" })
-  cmd("SottoccStop", M.stop, {})
+  M.configured = true
 end
 
 return M

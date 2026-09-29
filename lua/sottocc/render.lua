@@ -15,6 +15,8 @@ local NS = vim.api.nvim_create_namespace("sottocc.blocks")
 
 -- block key -> { mark_id, kind }
 M.blocks = {}
+-- tool_use_id -> the file the call names, for opening it from the tool line.
+M.targets = {}
 
 local GLYPH = {
   agent = "⏺",
@@ -24,6 +26,7 @@ local GLYPH = {
 
 function M.reset()
   M.blocks = {}
+  M.targets = {}
   Window.with_output(function(buf)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, {})
     vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
@@ -40,9 +43,7 @@ local function append(lines, hl, spans)
   Window.with_output(function(buf)
     local count = vim.api.nvim_buf_line_count(buf)
     -- An untouched scratch buffer still reports one empty line.
-    if count == 1 and vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "" then
-      count = 0
-    end
+    if count == 1 and vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "" then count = 0 end
     start_row = count
     vim.api.nvim_buf_set_lines(buf, count, -1, false, lines)
     if hl then
@@ -52,7 +53,7 @@ local function append(lines, hl, spans)
     end
     for _, sp in ipairs(spans or {}) do
       local opts = sp.line_hl and { line_hl_group = sp.line_hl }
-          or { end_col = sp.end_col, hl_group = sp.hl }
+        or { end_col = sp.end_col, hl_group = sp.hl }
       pcall(vim.api.nvim_buf_set_extmark, buf, NS, count + sp.row, sp.col or 0, opts)
     end
   end)
@@ -103,12 +104,13 @@ local function replace_line(key, text, hl)
   local row = row_of(key)
   if not row then return end
   Window.with_output(function(buf)
-    vim.api.nvim_buf_set_lines(buf, row, row + 1, false, { text })
-    -- set_lines can drift the anchor; pin it back to this exact row.
+    -- The text only, not the line: replacing the line that opens a fold
+    -- makes Neovim end the fold a line early.
+    local old = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+    vim.api.nvim_buf_set_text(buf, row, 0, row, #old, { text })
+    -- The anchor may have moved with the text; pin it back to column 0.
     M.blocks[key] = vim.api.nvim_buf_set_extmark(buf, NS, row, 0, {})
-    if hl then
-      vim.api.nvim_buf_set_extmark(buf, NS, row, 0, { line_hl_group = hl })
-    end
+    if hl then vim.api.nvim_buf_set_extmark(buf, NS, row, 0, { line_hl_group = hl }) end
   end)
 end
 
@@ -172,7 +174,9 @@ end
 ---@return string[]
 local function draw_table(head, aligns, body)
   local ncol = #head
-  for _, r in ipairs(body) do ncol = math.max(ncol, #r) end
+  for _, r in ipairs(body) do
+    ncol = math.max(ncol, #r)
+  end
 
   local w = {}
   local function measure(r)
@@ -182,11 +186,15 @@ local function draw_table(head, aligns, body)
     end
   end
   measure(head)
-  for _, r in ipairs(body) do measure(r) end
+  for _, r in ipairs(body) do
+    measure(r)
+  end
 
   local function rule(left, mid, right)
     local parts = {}
-    for i = 1, ncol do table.insert(parts, ("─"):rep(w[i] + 2)) end
+    for i = 1, ncol do
+      table.insert(parts, ("─"):rep(w[i] + 2))
+    end
     return left .. table.concat(parts, mid) .. right
   end
   local function row(cells)
@@ -198,7 +206,9 @@ local function draw_table(head, aligns, body)
   end
 
   local out = { rule("┌", "┬", "┐"), row(head), rule("├", "┼", "┤") }
-  for _, r in ipairs(body) do table.insert(out, row(r)) end
+  for _, r in ipairs(body) do
+    table.insert(out, row(r))
+  end
   table.insert(out, rule("└", "┴", "┘"))
   return out
 end
@@ -272,11 +282,34 @@ end
 ---@return string?
 local function describe(input)
   local path = input.file_path or input.path
-  if type(path) == "string" and path ~= "" then
-    return vim.fn.fnamemodify(path, ":.")
-  end
+  if type(path) == "string" and path ~= "" then return vim.fn.fnamemodify(path, ":.") end
   local v = input.command or input.pattern or input.query or input.description
   return v and tostring(v) or nil
+end
+
+---Where a tool call points: the file, and the line it read from or the text
+---an edit put there.
+---@param input table
+---@return { path: string, line: integer?, find: string? }?
+local function target(input)
+  local path = input.file_path or input.notebook_path or input.path
+  if type(path) ~= "string" or path == "" then return nil end
+  local new = type(input.new_string) == "string" and input.new_string or nil
+  return {
+    path = vim.fn.fnamemodify(path, ":p"),
+    line = tonumber(input.offset),
+    find = new and vim.split(new, "\n", { plain = true })[1] or nil,
+  }
+end
+
+---The target of the tool call whose line is at `row`.
+---@param row integer 0-indexed
+---@return { path: string, line: integer?, find: string? }?
+function M.target_at(row)
+  for id, t in pairs(M.targets) do
+    if row_of("tool:" .. id) == row then return t end
+  end
+  return nil
 end
 
 ---A tool call whose arguments are not known yet.
@@ -295,9 +328,10 @@ end
 ---@param name string
 ---@param input table
 function M.tool_confirm(id, name, input)
+  M.targets[id] = target(input)
   local summary = describe(input)
   local text = summary and ("%s %s(%s)"):format(GLYPH.agent, name, one_line(summary))
-      or ("%s %s"):format(GLYPH.agent, name)
+    or ("%s %s"):format(GLYPH.agent, name)
   if M.blocks["tool:" .. id] then
     replace_line("tool:" .. id, text)
   else
@@ -316,9 +350,7 @@ function M.tool_result(id, content, is_error)
   for i = 1, math.min(#raw, max) do
     table.insert(lines, (i == 1 and GLYPH.result or "     ") .. raw[i])
   end
-  if #raw > max then
-    table.insert(lines, ("     … +%d lines"):format(#raw - max))
-  end
+  if #raw > max then table.insert(lines, ("     … +%d lines"):format(#raw - max)) end
   if #lines == 0 then lines = { GLYPH.result .. "(no output)" } end
 
   local hl = is_error and "SottoccError" or "SottoccResult"
@@ -379,7 +411,7 @@ end
 function M.nested_tool(parent, name, input)
   local summary = describe(input)
   local text = summary and ("%s %s(%s)"):format(GLYPH.agent, name, one_line(summary))
-      or ("%s %s"):format(GLYPH.agent, name)
+    or ("%s %s"):format(GLYPH.agent, name)
   insert_after("end:" .. parent, { NEST .. one_line(text) })
 end
 
@@ -402,9 +434,7 @@ function M.nested_result(parent, content)
   for i = 1, math.min(#raw, max) do
     table.insert(lines, NEST .. (i == 1 and "⎿  " or "   ") .. raw[i])
   end
-  if #raw > max then
-    table.insert(lines, NEST .. ("   … +%d lines"):format(#raw - max))
-  end
+  if #raw > max then table.insert(lines, NEST .. ("   … +%d lines"):format(#raw - max)) end
   if #lines == 0 then lines = { NEST .. "⎿  (no output)" } end
   insert_after("end:" .. parent, lines)
 end
@@ -420,27 +450,27 @@ end
 ---the hand-back report goes inside the fold rather than on screen.
 ---@param id string
 ---@param content string
-function M.agent_done(id, content)
+---@param status string? how a background agent ended, when not completed
+function M.agent_done(id, content, status)
   content = content or ""
   local uses = content:match("tool_uses:%s*(%d+)")
   local tokens = content:match("subagent_tokens:%s*(%d+)")
   local ms = content:match("duration_ms:%s*(%d+)")
 
   local bits = {}
-  if uses then
-    table.insert(bits, ("%s tool use%s"):format(uses, uses == "1" and "" or "s"))
-  end
+  if uses then table.insert(bits, ("%s tool use%s"):format(uses, uses == "1" and "" or "s")) end
   if tokens then table.insert(bits, fmt_tokens(tonumber(tokens))) end
   if ms then table.insert(bits, ("%.1fs"):format(tonumber(ms) / 1000)) end
-  local head = #bits > 0 and ("Done (%s)"):format(table.concat(bits, " · ")) or "Done"
+  local word = status and (status:sub(1, 1):upper() .. status:sub(2)) or "Done"
+  local head = #bits > 0 and ("%s (%s)"):format(word, table.concat(bits, " · ")) or word
 
   if M.blocks["res:" .. id] then
     replace_line("res:" .. id, GLYPH.result .. head, "SottoccResult")
   end
 
-  local body = content:gsub("<usage>.-</usage>%s*$", "")
+  local body = vim.trim((content:gsub("<usage>.-</usage>%s*$", "")))
   local lines = {}
-  for _, l in ipairs(vim.split(vim.trim(body), "\n", { plain = true })) do
+  for _, l in ipairs(body == "" and {} or vim.split(body, "\n", { plain = true })) do
     table.insert(lines, NEST .. "   " .. l)
   end
   insert_after("end:" .. id, lines)

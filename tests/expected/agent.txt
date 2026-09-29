@@ -1,0 +1,35 @@
+0|
+0|⏺ Agent(ls コマンドを実行して結果を報告)
+1|  ⎿  Done (1 tool use · 14.2k tokens · 5.5s)
+1|     ⏺ Bash(ls)
+1|     ⎿  agent.err
+1|        agent.raw.ndjson
+1|        main.lua
+1|        notes.txt
+1|        tools.err
+1|        tools.raw.ndjson
+1|     カレントディレクトリの `ls` コマンドの出力結果は以下の通りです：
+1|     
+1|     ```
+1|     agent.err
+1|     agent.raw.ndjson
+1|     main.lua
+1|     notes.txt
+1|     tools.err
+1|     tools.raw.ndjson
+1|     ```
+0|
+0|⏺ エージェントを起動しました。バックグラウンドで `ls` コマンドを実行中です。完了通知を待っています。
+0|
+0|⏺ エージェントから報告されました。カレントディレクトリの `ls` 実行結果：
+0|  
+0|  ```
+0|  agent.err
+0|  agent.raw.ndjson
+0|  main.lua
+0|  notes.txt
+0|  tools.err
+0|  tools.raw.ndjson
+0|  ```
+0|  
+0|  6個のファイルが存在します。

@@ -1,0 +1,29 @@
+name: Bug report
+description: Something sottocc draws or does wrong
+body:
+  - type: textarea
+    id: health
+    attributes:
+      label: ":checkhealth sottocc"
+      description: Paste the whole output. It carries the Neovim and CLI versions.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: From opening Neovim, as few steps as you can.
+      placeholder: |
+        1. nvim --clean -u repro.lua
+        2. :Sottocc
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+      description: What the CLI does in the same case helps, since sottocc follows it.
+    validations:
+      required: true
