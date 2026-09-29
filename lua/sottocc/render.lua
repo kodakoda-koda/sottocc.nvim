@@ -303,14 +303,21 @@ local function target(input)
   }
 end
 
+---The id of the tool call whose line is at `row`.
+---@param row integer 0-indexed
+---@return string?
+function M.tool_at(row)
+  for key in pairs(M.blocks) do
+    local id = key:match("^tool:(.+)$")
+    if id and row_of(key) == row then return id end
+  end
+end
+
 ---The target of the tool call whose line is at `row`.
 ---@param row integer 0-indexed
 ---@return { path: string, line: integer?, find: string? }?
 function M.target_at(row)
-  for id, t in pairs(M.targets) do
-    if row_of("tool:" .. id) == row then return t end
-  end
-  return nil
+  return M.targets[M.tool_at(row) or ""]
 end
 
 ---A tool call whose arguments are not known yet.
