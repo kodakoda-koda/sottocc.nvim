@@ -271,5 +271,52 @@ eq(
   { empty_conversation, vim.fn.filereadable(Session.transcript(empty_id, "/work")) }
 )
 
+-- Tool lines drawn one at a time into an empty output buffer.
+local Render = require("sottocc.render")
+
+---Draw one tool call and return its line.
+---@param id string
+---@param name string
+---@param input table
+---@return string
+local function tool_line(id, name, input)
+  Render.reset()
+  Render.tool_start(id, name)
+  Render.tool_confirm(id, name, input)
+  local lines = vim.api.nvim_buf_get_lines(Window.output_buf, 0, -1, false)
+  return lines[#lines]
+end
+
+local function valid_utf8(s)
+  local i = 1
+  while i <= #s do
+    local c = s:byte(i)
+    local n = c < 0x80 and 0 or c >= 0xF0 and 3 or c >= 0xE0 and 2 or c >= 0xC0 and 1 or -1
+    if n < 0 then return false end
+    for k = 1, n do
+      local b = s:byte(i + k)
+      if not b or b < 0x80 or b > 0xBF then return false end
+    end
+    i = i + n + 1
+  end
+  return true
+end
+
+local long = tool_line("u1", "Agent", { description = ("あいうえお"):rep(30) })
+eq("long header stays UTF-8", { true, "…" }, { valid_utf8(long), long:sub(-#"…") })
+
+eq(
+  "NotebookEdit header names the notebook",
+  "⏺ NotebookEdit(/work/n.ipynb)",
+  tool_line("u2", "NotebookEdit", { notebook_path = "/work/n.ipynb" })
+)
+
+tool_line("u3", "mcp__srv_a-b__read", { file_path = "/work/a.lua" })
+eq("gf on an MCP tool with a hyphen", { path = "/work/a.lua" }, target_on("⏺ mcp__"))
+
+local far = "/work/" .. ("x"):rep(200) .. ".lua"
+tool_line("u4", "Read", { file_path = far })
+eq("gf on a header cut short", { path = far }, target_on("⏺ Read("))
+
 io.stdout:write(failures == 0 and "all passed\n" or ("%d failed\n"):format(failures))
 os.exit(failures == 0 and 0 or 1)
