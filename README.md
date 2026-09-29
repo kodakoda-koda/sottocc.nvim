@@ -230,6 +230,9 @@ The fixtures are streams recorded from the real CLI. Code is formatted with
 
 Early. It does what the author uses it for.
 
+Bug reports are welcome as issues. Pull requests are not accepted; if
+something is wrong or missing, open an issue instead.
+
 ## License
 
 MIT
