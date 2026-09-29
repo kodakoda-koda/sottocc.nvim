@@ -91,7 +91,8 @@ local function one_line(v)
   -- the indent and the two spaces after ⎿ are what the fold rule reads.
   local first = vim.split(v, "\n", { plain = true })[1] or ""
   first = first:gsub("\t", " "):gsub("%s+$", "")
-  if #first > 120 then first = first:sub(1, 117) .. "…" end
+  -- By character, not byte: a byte cut can land inside a multi-byte one.
+  if vim.fn.strchars(first) > 120 then first = vim.fn.strcharpart(first, 0, 117) .. "…" end
   return first
 end
 
