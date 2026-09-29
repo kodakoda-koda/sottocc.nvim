@@ -305,6 +305,9 @@ function show(slot)
       vim.api.nvim_win_call(win, function()
         vim.cmd("diffthis")
       end)
+      -- diffthis turns 'wrap' off, and half the screen is too narrow to read
+      -- a long line through a cut-off edge.
+      vim.wo[win].wrap = true
     end
     bind_keys(before_buf)
     bind_keys(after_buf)
