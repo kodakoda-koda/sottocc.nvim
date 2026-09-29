@@ -282,7 +282,7 @@ end
 ---@param input table
 ---@return string?
 local function describe(input)
-  local path = input.file_path or input.path
+  local path = input.file_path or input.notebook_path or input.path
   if type(path) == "string" and path ~= "" then return vim.fn.fnamemodify(path, ":.") end
   local v = input.command or input.pattern or input.query or input.description
   return v and tostring(v) or nil
