@@ -109,7 +109,6 @@ local function existing(s)
   return nil
 end
 
-local HEADER = "^%s*⏺ [%w_]+%((.*)%)$"
 local RESULT = { "  ⎿  ", "     " }
 
 ---@param l string
@@ -142,12 +141,15 @@ function M.target_at_cursor()
   if path then return { path = path } end
 
   for r = row, 0, -1 do
+    -- A tool line this session drew: its input says where it points, however
+    -- the name is spelled or the line was cut.
+    local id = Render.tool_at(r)
+    if id then return Render.targets[id] end
+    -- Any other tool line, such as a subagent's step: only its text is left.
     local l = lines[r + 1]
-    local arg = l:match(HEADER)
-    if arg then
-      local t = Render.target_at(r)
-      if t then return t end
-      path = existing(arg)
+    local rest = l:match("^%s*⏺ [^%s(]+%((.*)$")
+    if rest then
+      path = existing((rest:gsub("%)$", "")))
       return path and { path = path } or nil
     end
     if not in_result(l) then return nil end

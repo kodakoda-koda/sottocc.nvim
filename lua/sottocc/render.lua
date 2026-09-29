@@ -91,7 +91,8 @@ local function one_line(v)
   -- the indent and the two spaces after ⎿ are what the fold rule reads.
   local first = vim.split(v, "\n", { plain = true })[1] or ""
   first = first:gsub("\t", " "):gsub("%s+$", "")
-  if #first > 120 then first = first:sub(1, 117) .. "…" end
+  -- By character, not byte: a byte cut can land inside a multi-byte one.
+  if vim.fn.strchars(first) > 120 then first = vim.fn.strcharpart(first, 0, 117) .. "…" end
   return first
 end
 
@@ -281,7 +282,7 @@ end
 ---@param input table
 ---@return string?
 local function describe(input)
-  local path = input.file_path or input.path
+  local path = input.file_path or input.notebook_path or input.path
   if type(path) == "string" and path ~= "" then return vim.fn.fnamemodify(path, ":.") end
   local v = input.command or input.pattern or input.query or input.description
   return v and tostring(v) or nil
@@ -302,14 +303,21 @@ local function target(input)
   }
 end
 
+---The id of the tool call whose line is at `row`.
+---@param row integer 0-indexed
+---@return string?
+function M.tool_at(row)
+  for key in pairs(M.blocks) do
+    local id = key:match("^tool:(.+)$")
+    if id and row_of(key) == row then return id end
+  end
+end
+
 ---The target of the tool call whose line is at `row`.
 ---@param row integer 0-indexed
 ---@return { path: string, line: integer?, find: string? }?
 function M.target_at(row)
-  for id, t in pairs(M.targets) do
-    if row_of("tool:" .. id) == row then return t end
-  end
-  return nil
+  return M.targets[M.tool_at(row) or ""]
 end
 
 ---A tool call whose arguments are not known yet.
